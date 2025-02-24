@@ -18,6 +18,7 @@
 
 package org.apache.paimon.rest;
 
+import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogTestBase;
 import org.apache.paimon.catalog.Identifier;
@@ -110,12 +111,7 @@ class RESTCatalogTest extends CatalogTestBase {
 
     @Test
     void testRefreshFileIO() throws Exception {
-        Options options = new Options();
-        options.set(RESTCatalogOptions.URI, restCatalogServer.getUrl());
-        options.set(RESTCatalogOptions.TOKEN, initToken);
-        options.set(RESTCatalogOptions.THREAD_POOL_SIZE, 1);
-        options.set(RESTCatalogOptions.DATA_TOKEN_ENABLED, true);
-        this.catalog = new RESTCatalog(CatalogContext.create(options));
+        this.catalog = initDataTokenCatalog();
         List<Identifier> identifiers =
                 Lists.newArrayList(
                         Identifier.create("test_db_a", "test_table_a"),
@@ -124,8 +120,25 @@ class RESTCatalogTest extends CatalogTestBase {
         for (Identifier identifier : identifiers) {
             createTable(identifier, Maps.newHashMap(), Lists.newArrayList("col1"));
             FileStoreTable fileStoreTable = (FileStoreTable) catalog.getTable(identifier);
+            RESTTokenFileIO fileIO = (RESTTokenFileIO) fileStoreTable.fileIO();
+            RESTToken fileDataToken = fileIO.validToken();
+            assertEquals(restCatalogServer.dataTokenProvider.getToken(), fileDataToken.token());
             assertEquals(true, fileStoreTable.fileIO().exists(fileStoreTable.location()));
         }
+    }
+
+    @Test
+    void testRefreshFileIOWhenExpired() throws Exception {
+        this.catalog = initDataTokenCatalog();
+        Identifier identifier = Identifier.create("test_db_a", "table_for_testing_date_token");
+        createTable(identifier, Maps.newHashMap(), Lists.newArrayList("col1"));
+        FileStoreTable fileStoreTable = (FileStoreTable) catalog.getTable(identifier);
+        RESTTokenFileIO fileIO = (RESTTokenFileIO) fileStoreTable.fileIO();
+        RESTToken fileDataToken = fileIO.validToken();
+        assertEquals(restCatalogServer.dataTokenProvider.getToken(), fileDataToken.token());
+        RESTToken nextFileDataToken = fileIO.validToken();
+        assertEquals(restCatalogServer.dataTokenProvider.getToken(), nextFileDataToken.token());
+        assertEquals(true, nextFileDataToken.expireAtMillis() - fileDataToken.expireAtMillis() > 0);
     }
 
     @Override
@@ -143,6 +156,11 @@ class RESTCatalogTest extends CatalogTestBase {
         return true;
     }
 
+    // TODO implement this
+    @Override
+    @Test
+    public void testTableUUID() {}
+
     private void createTable(
             Identifier identifier, Map<String, String> options, List<String> partitionKeys)
             throws Exception {
@@ -158,8 +176,12 @@ class RESTCatalogTest extends CatalogTestBase {
                 true);
     }
 
-    // TODO implement this
-    @Override
-    @Test
-    public void testTableUUID() {}
+    private Catalog initDataTokenCatalog() {
+        Options options = new Options();
+        options.set(RESTCatalogOptions.URI, restCatalogServer.getUrl());
+        options.set(RESTCatalogOptions.TOKEN, initToken);
+        options.set(RESTCatalogOptions.THREAD_POOL_SIZE, 1);
+        options.set(RESTCatalogOptions.DATA_TOKEN_ENABLED, true);
+        return new RESTCatalog(CatalogContext.create(options));
+    }
 }

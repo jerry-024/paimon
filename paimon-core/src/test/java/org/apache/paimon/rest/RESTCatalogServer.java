@@ -84,13 +84,17 @@ public class RESTCatalogServer {
     private final Dispatcher dispatcher;
     private final MockWebServer server;
     private final String authToken;
+    public final DataTokenProvider dataTokenProvider;
 
     public RESTCatalogServer(String warehouse, String initToken) {
         authToken = initToken;
         Options conf = new Options();
         conf.setString("warehouse", warehouse);
         this.catalog = TestRESTCatalog.create(CatalogContext.create(conf));
-        this.dispatcher = initDispatcher(catalog, warehouse, authToken);
+        this.dataTokenProvider =
+                new DataTokenProvider(
+                        ImmutableMap.of("ak", "ak", "akId", "akId"), System.currentTimeMillis());
+        this.dispatcher = initDispatcher(catalog, warehouse, authToken, dataTokenProvider);
         MockWebServer mockWebServer = new MockWebServer();
         mockWebServer.setDispatcher(dispatcher);
         server = mockWebServer;
@@ -108,7 +112,11 @@ public class RESTCatalogServer {
         server.shutdown();
     }
 
-    public static Dispatcher initDispatcher(Catalog catalog, String warehouse, String authToken) {
+    public static Dispatcher initDispatcher(
+            Catalog catalog,
+            String warehouse,
+            String authToken,
+            DataTokenProvider dataTokenProvider) {
         return new Dispatcher() {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
@@ -232,10 +240,22 @@ public class RESTCatalogServer {
                             }
                             return partitionsApiHandler(catalog, request, databaseName, tableName);
                         } else if (isTableToken) {
+                            String tableName = resources[2];
+                            long expiresAtMillis = System.currentTimeMillis() + 1_000;
+                            if (tableName.equals("table_for_testing_date_token")) {
+                                expiresAtMillis = System.currentTimeMillis() - 3_0000;
+                                dataTokenProvider.setToken(
+                                        ImmutableMap.of(
+                                                "ak",
+                                                "ak-" + expiresAtMillis,
+                                                "akId",
+                                                "akId-" + expiresAtMillis));
+                            }
+                            dataTokenProvider.setExpiresAtMillis(expiresAtMillis);
                             GetTableTokenResponse getTableTokenResponse =
                                     new GetTableTokenResponse(
-                                            ImmutableMap.of("key", "value"),
-                                            System.currentTimeMillis());
+                                            dataTokenProvider.getToken(),
+                                            dataTokenProvider.getExpiresAtMillis());
                             return new MockResponse()
                                     .setResponseCode(200)
                                     .setBody(
