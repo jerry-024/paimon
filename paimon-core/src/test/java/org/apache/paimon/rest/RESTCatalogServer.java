@@ -28,6 +28,7 @@ import org.apache.paimon.operation.Lock;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.rest.auth.BearTokenAuthProvider;
 import org.apache.paimon.rest.requests.AlterPartitionsRequest;
 import org.apache.paimon.rest.requests.AlterTableRequest;
 import org.apache.paimon.rest.requests.CommitTableRequest;
@@ -120,7 +121,8 @@ public class RESTCatalogServer {
         return new Dispatcher() {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
-                String token = request.getHeaders().get("Authorization");
+                String token =
+                        request.getHeaders().get(BearTokenAuthProvider.AUTHORIZATION_HEADER_KEY);
                 RESTResponse response;
                 try {
                     if (!("Bearer " + authToken).equals(token)) {
@@ -525,13 +527,15 @@ public class RESTCatalogServer {
                 CreateViewRequest requestBody =
                         OBJECT_MAPPER.readValue(
                                 request.getBody().readUtf8(), CreateViewRequest.class);
+                ViewSchema schema = requestBody.getSchema();
                 ViewImpl view =
                         new ViewImpl(
                                 requestBody.getIdentifier(),
-                                requestBody.getSchema().rowType(),
-                                requestBody.getSchema().query(),
-                                requestBody.getSchema().comment(),
-                                requestBody.getSchema().options());
+                                schema.fields(),
+                                schema.query(),
+                                schema.dialects(),
+                                schema.comment(),
+                                schema.options());
                 catalog.createView(requestBody.getIdentifier(), view, false);
                 return new MockResponse().setResponseCode(200);
             default:
@@ -549,10 +553,11 @@ public class RESTCatalogServer {
                 View view = catalog.getView(identifier);
                 ViewSchema schema =
                         new ViewSchema(
-                                view.rowType(),
-                                view.options(),
+                                view.rowType().getFields(),
+                                view.query(),
+                                view.dialects(),
                                 view.comment().orElse(null),
-                                view.query());
+                                view.options());
                 response = new GetViewResponse("id", identifier.getTableName(), schema);
                 return mockResponse(response, 200);
             case "DELETE":
@@ -592,7 +597,7 @@ public class RESTCatalogServer {
                             table.options(),
                             table.comment().orElse(null));
         }
-        return new GetTableResponse(table.uuid(), table.name(), schemaId, schema);
+        return new GetTableResponse(table.uuid(), table.name(), false, schemaId, schema);
     }
 
     private static MockResponse mockResponse(RESTResponse response, int httpCode) {
@@ -608,10 +613,12 @@ public class RESTCatalogServer {
 
     private static String getConfigBody(String warehouseStr) {
         return String.format(
-                "{\"defaults\": {\"%s\": \"%s\", \"%s\": \"%s\"}}",
+                "{\"defaults\": {\"%s\": \"%s\", \"%s\": \"%s\", \"%s\": \"%s\"}}",
                 RESTCatalogInternalOptions.PREFIX.key(),
                 PREFIX,
                 CatalogOptions.WAREHOUSE.key(),
-                warehouseStr);
+                warehouseStr,
+                "header.test-header",
+                "test-value");
     }
 }
