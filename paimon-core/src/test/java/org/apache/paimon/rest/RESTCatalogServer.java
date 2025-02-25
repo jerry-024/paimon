@@ -242,18 +242,6 @@ public class RESTCatalogServer {
                             }
                             return partitionsApiHandler(catalog, request, databaseName, tableName);
                         } else if (isTableToken) {
-                            String tableName = resources[2];
-                            long expiresAtMillis = System.currentTimeMillis() + 1_000;
-                            if (tableName.equals("table_for_testing_date_token")) {
-                                expiresAtMillis = System.currentTimeMillis() - 3_0000;
-                                dataTokenProvider.setToken(
-                                        ImmutableMap.of(
-                                                "ak",
-                                                "ak-" + expiresAtMillis,
-                                                "akId",
-                                                "akId-" + expiresAtMillis));
-                            }
-                            dataTokenProvider.setExpiresAtMillis(expiresAtMillis);
                             GetTableTokenResponse getTableTokenResponse =
                                     new GetTableTokenResponse(
                                             dataTokenProvider.getToken(),

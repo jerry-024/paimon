@@ -144,6 +144,9 @@ class RESTCatalogTest extends CatalogTestBase {
             RESTTokenFileIO fileIO = (RESTTokenFileIO) fileStoreTable.fileIO();
             RESTToken fileDataToken = fileIO.validToken();
             assertEquals(restCatalogServer.dataTokenProvider.getToken(), fileDataToken.token());
+            assertEquals(
+                    restCatalogServer.dataTokenProvider.getExpiresAtMillis(),
+                    fileDataToken.expireAtMillis());
             assertEquals(true, fileStoreTable.fileIO().exists(fileStoreTable.location()));
         }
     }
@@ -151,14 +154,23 @@ class RESTCatalogTest extends CatalogTestBase {
     @Test
     void testRefreshFileIOWhenExpired() throws Exception {
         this.catalog = initDataTokenCatalog();
-        Identifier identifier = Identifier.create("test_db_a", "table_for_testing_date_token");
+        restCatalogServer.dataTokenProvider.setExpiresAtMillis(System.currentTimeMillis() - 1_000);
+        Identifier identifier =
+                Identifier.create("test_data_token", "table_for_testing_date_token");
         createTable(identifier, Maps.newHashMap(), Lists.newArrayList("col1"));
         FileStoreTable fileStoreTable = (FileStoreTable) catalog.getTable(identifier);
         RESTTokenFileIO fileIO = (RESTTokenFileIO) fileStoreTable.fileIO();
         RESTToken fileDataToken = fileIO.validToken();
         assertEquals(restCatalogServer.dataTokenProvider.getToken(), fileDataToken.token());
+        assertEquals(
+                restCatalogServer.dataTokenProvider.getExpiresAtMillis(),
+                fileDataToken.expireAtMillis());
+        restCatalogServer.dataTokenProvider.refresh();
         RESTToken nextFileDataToken = fileIO.validToken();
         assertEquals(restCatalogServer.dataTokenProvider.getToken(), nextFileDataToken.token());
+        assertEquals(
+                restCatalogServer.dataTokenProvider.getExpiresAtMillis(),
+                nextFileDataToken.expireAtMillis());
         assertEquals(true, nextFileDataToken.expireAtMillis() - fileDataToken.expireAtMillis() > 0);
     }
 
