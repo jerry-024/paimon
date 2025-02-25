@@ -232,7 +232,6 @@ class RESTCatalogTest extends CatalogTestBase {
         Options options = new Options();
         options.set(RESTCatalogOptions.URI, restCatalogServer.getUrl());
         options.set(RESTCatalogOptions.TOKEN, initToken);
-        options.set(RESTCatalogOptions.THREAD_POOL_SIZE, 1);
         options.set(RESTCatalogOptions.DATA_TOKEN_ENABLED, true);
         options.set(RESTCatalogOptions.TOKEN_PROVIDER, AuthProviderEnum.BEAR.identifier());
         return new RESTCatalog(CatalogContext.create(options));
