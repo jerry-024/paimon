@@ -16,13 +16,4 @@
  * limitations under the License.
  */
 
-package org.apache.paimon.rest.responses;
-
-/** The type of resource that caused the error. */
-public enum ErrorResponseResourceType {
-    DATABASE,
-    TABLE,
-    COLUMN,
-    VIEW,
-    SNAPSHOT
-}
+{"data":[{"k":"2","v":"2.3"}],"database":"paimon_sync_table","es":1683880554000,"id":2150,"isDdl":false,"mysqlType":{"k":"int","v":"decimal(15,4)"},"old":null,"pkNames":["k"],"sql":"","sqlType":{"k":4,"v":3},"table":"decimal_no_change","ts":1683880554351,"type":"INSERT"}

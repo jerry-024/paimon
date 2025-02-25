@@ -18,6 +18,7 @@
 
 package org.apache.paimon.rest;
 
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogTestBase;
@@ -46,8 +47,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.apache.paimon.CoreOptions.METASTORE_PARTITIONED_TABLE;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -67,7 +70,6 @@ class RESTCatalogTest extends CatalogTestBase {
         options.set(RESTCatalogOptions.URI, restCatalogServer.getUrl());
         options.set(RESTCatalogOptions.TOKEN, initToken);
         options.set(RESTCatalogOptions.TOKEN_PROVIDER, AuthProviderEnum.BEAR.identifier());
-        options.set(RESTCatalogOptions.THREAD_POOL_SIZE, 1);
         this.catalog = new RESTCatalog(CatalogContext.create(options));
     }
 
@@ -91,7 +93,6 @@ class RESTCatalogTest extends CatalogTestBase {
         options.set(RESTCatalogOptions.URI, restCatalogServer.getUrl());
         options.set(RESTCatalogOptions.TOKEN, "aaaaa");
         options.set(RESTCatalogOptions.TOKEN_PROVIDER, AuthProviderEnum.BEAR.identifier());
-        options.set(RESTCatalogOptions.THREAD_POOL_SIZE, 1);
         options.set(CatalogOptions.METASTORE, RESTCatalogFactory.IDENTIFIER);
         assertThatThrownBy(() -> new RESTCatalog(CatalogContext.create(options)))
                 .isInstanceOf(NotAuthorizedException.class);
@@ -172,6 +173,24 @@ class RESTCatalogTest extends CatalogTestBase {
                 restCatalogServer.dataTokenProvider.getExpiresAtMillis(),
                 nextFileDataToken.expireAtMillis());
         assertEquals(true, nextFileDataToken.expireAtMillis() - fileDataToken.expireAtMillis() > 0);
+    }
+
+    @Test
+    void testSnapshotFromREST() throws Catalog.TableNotExistException {
+        Options options = new Options();
+        options.set(RESTCatalogOptions.URI, restCatalogServer.getUrl());
+        options.set(RESTCatalogOptions.TOKEN, initToken);
+        options.set(RESTCatalogOptions.TOKEN_PROVIDER, AuthProviderEnum.BEAR.identifier());
+        RESTCatalog catalog = new RESTCatalog(CatalogContext.create(options));
+
+        Optional<Snapshot> snapshot =
+                catalog.loadSnapshot(Identifier.create("test_db_a", "my_snapshot_table"));
+        assertThat(snapshot).isPresent();
+        assertThat(snapshot.get().id()).isEqualTo(10086);
+        assertThat(snapshot.get().timeMillis()).isEqualTo(100);
+
+        snapshot = catalog.loadSnapshot(Identifier.create("test_db_a", "unknown"));
+        assertThat(snapshot).isEmpty();
     }
 
     @Override
