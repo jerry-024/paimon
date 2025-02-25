@@ -98,12 +98,6 @@ public class RESTCatalogOptions {
                     .noDefaultValue()
                     .withDescription("REST Catalog auth DLF security token");
 
-    public static final ConfigOption<String> DLF_ROLE_SESSION_NAME =
-            ConfigOptions.key("dlf.roleSessionName")
-                    .stringType()
-                    .noDefaultValue()
-                    .withDescription("REST Catalog auth DLF role session name");
-
     public static final ConfigOption<Boolean> DATA_TOKEN_ENABLED =
             ConfigOptions.key("data-token.enabled")
                     .booleanType()
