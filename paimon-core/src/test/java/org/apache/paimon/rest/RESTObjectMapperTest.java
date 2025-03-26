@@ -42,10 +42,13 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
 
+import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+
 import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.paimon.rest.RESTObjectMapper.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,6 +57,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Test for {@link RESTObjectMapper}. */
 public class RESTObjectMapperTest {
 
+    private static AtomicInteger callTimes = new AtomicInteger(0);
+
     @Test
     public void configResponseParseTest() throws Exception {
         String confKey = "a";
@@ -61,8 +66,19 @@ public class RESTObjectMapperTest {
         conf.put(confKey, "b");
         ConfigResponse response = new ConfigResponse(conf, conf);
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        ConfigResponse parseData = OBJECT_MAPPER.readValue(responseStr, ConfigResponse.class);
+        ConfigResponse parseData = parseData(responseStr, ConfigResponse.class);
         assertEquals(conf.get(confKey), parseData.getDefaults().get(confKey));
+    }
+
+    private <T> T parseData(String str, Class<T> valueType) throws JsonProcessingException {
+        long start = System.currentTimeMillis();
+        T data = OBJECT_MAPPER.readValue(str, valueType);
+        long end = System.currentTimeMillis();
+        System.out.println(
+                String.format(
+                        "time [%s] parse data cost: [%s] ms class [%s]",
+                        callTimes.incrementAndGet(), end - start, valueType));
+        return data;
     }
 
     @Test
@@ -71,7 +87,7 @@ public class RESTObjectMapperTest {
         Integer code = 400;
         ErrorResponse response = new ErrorResponse(null, null, message, code);
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        ErrorResponse parseData = OBJECT_MAPPER.readValue(responseStr, ErrorResponse.class);
+        ErrorResponse parseData = parseData(responseStr, ErrorResponse.class);
         assertEquals(message, parseData.getMessage());
         assertEquals(code, parseData.getCode());
     }
@@ -81,8 +97,7 @@ public class RESTObjectMapperTest {
         String name = MockRESTMessage.databaseName();
         CreateDatabaseRequest request = MockRESTMessage.createDatabaseRequest(name);
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        CreateDatabaseRequest parseData =
-                OBJECT_MAPPER.readValue(requestStr, CreateDatabaseRequest.class);
+        CreateDatabaseRequest parseData = parseData(requestStr, CreateDatabaseRequest.class);
         assertEquals(request.getName(), parseData.getName());
         assertEquals(request.getOptions().size(), parseData.getOptions().size());
     }
@@ -92,8 +107,7 @@ public class RESTObjectMapperTest {
         String name = MockRESTMessage.databaseName();
         GetDatabaseResponse response = MockRESTMessage.getDatabaseResponse(name);
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        GetDatabaseResponse parseData =
-                OBJECT_MAPPER.readValue(responseStr, GetDatabaseResponse.class);
+        GetDatabaseResponse parseData = parseData(responseStr, GetDatabaseResponse.class);
         assertEquals(name, parseData.getName());
         assertEquals(response.getOptions().size(), parseData.getOptions().size());
     }
@@ -103,8 +117,7 @@ public class RESTObjectMapperTest {
         String name = MockRESTMessage.databaseName();
         ListDatabasesResponse response = MockRESTMessage.listDatabasesResponse(name);
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        ListDatabasesResponse parseData =
-                OBJECT_MAPPER.readValue(responseStr, ListDatabasesResponse.class);
+        ListDatabasesResponse parseData = parseData(responseStr, ListDatabasesResponse.class);
         assertEquals(response.getDatabases().size(), parseData.getDatabases().size());
         assertEquals(name, parseData.getDatabases().get(0));
     }
@@ -113,8 +126,7 @@ public class RESTObjectMapperTest {
     public void alterDatabaseRequestParseTest() throws Exception {
         AlterDatabaseRequest request = MockRESTMessage.alterDatabaseRequest();
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        AlterDatabaseRequest parseData =
-                OBJECT_MAPPER.readValue(requestStr, AlterDatabaseRequest.class);
+        AlterDatabaseRequest parseData = parseData(requestStr, AlterDatabaseRequest.class);
         assertEquals(request.getRemovals().size(), parseData.getRemovals().size());
         assertEquals(request.getUpdates().size(), parseData.getUpdates().size());
     }
@@ -123,8 +135,7 @@ public class RESTObjectMapperTest {
     public void alterDatabaseResponseParseTest() throws Exception {
         AlterDatabaseResponse response = MockRESTMessage.alterDatabaseResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        AlterDatabaseResponse parseData =
-                OBJECT_MAPPER.readValue(responseStr, AlterDatabaseResponse.class);
+        AlterDatabaseResponse parseData = parseData(responseStr, AlterDatabaseResponse.class);
         assertEquals(response.getRemoved().size(), parseData.getRemoved().size());
         assertEquals(response.getUpdated().size(), parseData.getUpdated().size());
         assertEquals(response.getMissing().size(), parseData.getMissing().size());
@@ -134,8 +145,7 @@ public class RESTObjectMapperTest {
     public void createTableRequestParseTest() throws Exception {
         CreateTableRequest request = MockRESTMessage.createTableRequest("t1");
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        CreateTableRequest parseData =
-                OBJECT_MAPPER.readValue(requestStr, CreateTableRequest.class);
+        CreateTableRequest parseData = parseData(requestStr, CreateTableRequest.class);
         assertEquals(request.getIdentifier(), parseData.getIdentifier());
         assertEquals(request.getSchema(), parseData.getSchema());
     }
@@ -151,7 +161,7 @@ public class RESTObjectMapperTest {
                 String.format(
                         "{\"id\": %d,\"name\":\"%s\",\"type\":\"%s\", \"description\":\"%s\"}",
                         id, name, type, descStr);
-        DataField parseData = OBJECT_MAPPER.readValue(dataFieldStr, DataField.class);
+        DataField parseData = parseData(dataFieldStr, DataField.class);
         assertEquals(id, parseData.id());
         assertEquals(name, parseData.name());
         assertEquals(type, parseData.type());
@@ -162,8 +172,7 @@ public class RESTObjectMapperTest {
     public void renameTableRequestParseTest() throws Exception {
         RenameTableRequest request = MockRESTMessage.renameRequest("t1", "t2");
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        RenameTableRequest parseData =
-                OBJECT_MAPPER.readValue(requestStr, RenameTableRequest.class);
+        RenameTableRequest parseData = parseData(requestStr, RenameTableRequest.class);
         assertEquals(request.getSource(), parseData.getSource());
         assertEquals(request.getDestination(), parseData.getDestination());
     }
@@ -172,7 +181,7 @@ public class RESTObjectMapperTest {
     public void getTableResponseParseTest() throws Exception {
         GetTableResponse response = MockRESTMessage.getTableResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        GetTableResponse parseData = OBJECT_MAPPER.readValue(responseStr, GetTableResponse.class);
+        GetTableResponse parseData = parseData(responseStr, GetTableResponse.class);
         assertEquals(response.getSchemaId(), parseData.getSchemaId());
         assertEquals(response.getSchema(), parseData.getSchema());
     }
@@ -181,8 +190,7 @@ public class RESTObjectMapperTest {
     public void listTablesResponseParseTest() throws Exception {
         ListTablesResponse response = MockRESTMessage.listTablesResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        ListTablesResponse parseData =
-                OBJECT_MAPPER.readValue(responseStr, ListTablesResponse.class);
+        ListTablesResponse parseData = parseData(responseStr, ListTablesResponse.class);
         assertEquals(response.getTables(), parseData.getTables());
     }
 
@@ -190,7 +198,7 @@ public class RESTObjectMapperTest {
     public void alterTableRequestParseTest() throws Exception {
         AlterTableRequest request = MockRESTMessage.alterTableRequest();
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        AlterTableRequest parseData = OBJECT_MAPPER.readValue(requestStr, AlterTableRequest.class);
+        AlterTableRequest parseData = parseData(requestStr, AlterTableRequest.class);
         assertEquals(parseData.getChanges().size(), parseData.getChanges().size());
     }
 
@@ -198,8 +206,7 @@ public class RESTObjectMapperTest {
     public void listPartitionsResponseParseTest() throws Exception {
         ListPartitionsResponse response = MockRESTMessage.listPartitionsResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        ListPartitionsResponse parseData =
-                OBJECT_MAPPER.readValue(responseStr, ListPartitionsResponse.class);
+        ListPartitionsResponse parseData = parseData(responseStr, ListPartitionsResponse.class);
         assertEquals(
                 response.getPartitions().get(0).fileCount(),
                 parseData.getPartitions().get(0).fileCount());
@@ -209,7 +216,7 @@ public class RESTObjectMapperTest {
     public void createViewRequestParseTest() throws Exception {
         CreateViewRequest request = MockRESTMessage.createViewRequest("t1");
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        CreateViewRequest parseData = OBJECT_MAPPER.readValue(requestStr, CreateViewRequest.class);
+        CreateViewRequest parseData = parseData(requestStr, CreateViewRequest.class);
         assertEquals(request.getIdentifier(), parseData.getIdentifier());
         assertEquals(request.getSchema(), parseData.getSchema());
     }
@@ -218,7 +225,7 @@ public class RESTObjectMapperTest {
     public void getViewResponseParseTest() throws Exception {
         GetViewResponse response = MockRESTMessage.getViewResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        GetViewResponse parseData = OBJECT_MAPPER.readValue(responseStr, GetViewResponse.class);
+        GetViewResponse parseData = parseData(responseStr, GetViewResponse.class);
         assertEquals(response.getId(), parseData.getId());
         assertEquals(response.getName(), parseData.getName());
         assertEquals(response.getSchema(), parseData.getSchema());
@@ -228,7 +235,7 @@ public class RESTObjectMapperTest {
     public void listViewsResponseParseTest() throws Exception {
         ListViewsResponse response = MockRESTMessage.listViewsResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        ListViewsResponse parseData = OBJECT_MAPPER.readValue(responseStr, ListViewsResponse.class);
+        ListViewsResponse parseData = parseData(responseStr, ListViewsResponse.class);
         assertEquals(response.getViews(), parseData.getViews());
     }
 
@@ -236,8 +243,7 @@ public class RESTObjectMapperTest {
     public void getTableTokenResponseParseTest() throws Exception {
         GetTableTokenResponse response = MockRESTMessage.getTableCredentialsResponse();
         String responseStr = OBJECT_MAPPER.writeValueAsString(response);
-        GetTableTokenResponse parseData =
-                OBJECT_MAPPER.readValue(responseStr, GetTableTokenResponse.class);
+        GetTableTokenResponse parseData = parseData(responseStr, GetTableTokenResponse.class);
         assertEquals(response.getToken(), parseData.getToken());
         assertEquals(response.getExpiresAtMillis(), parseData.getExpiresAtMillis());
     }
@@ -274,7 +280,7 @@ public class RESTObjectMapperTest {
     public void alterViewRequestParseTest() throws Exception {
         AlterViewRequest request = MockRESTMessage.alterViewRequest();
         String requestStr = OBJECT_MAPPER.writeValueAsString(request);
-        AlterViewRequest parseData = OBJECT_MAPPER.readValue(requestStr, AlterViewRequest.class);
+        AlterViewRequest parseData = parseData(requestStr, AlterViewRequest.class);
         assertEquals(parseData.viewChanges().size(), request.viewChanges().size());
         for (int i = 0; i < request.viewChanges().size(); i++) {
             assertEquals(parseData.viewChanges().get(i), request.viewChanges().get(i));

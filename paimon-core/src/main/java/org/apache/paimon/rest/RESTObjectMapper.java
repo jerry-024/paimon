@@ -18,6 +18,12 @@
 
 package org.apache.paimon.rest;
 
+import org.apache.paimon.rest.requests.AlterTableRequest;
+import org.apache.paimon.rest.requests.AlterViewRequest;
+import org.apache.paimon.rest.responses.ConfigResponse;
+import org.apache.paimon.rest.responses.ErrorResponse;
+import org.apache.paimon.rest.responses.ListDatabasesResponse;
+import org.apache.paimon.rest.responses.ListViewsResponse;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeJsonParser;
@@ -42,7 +48,22 @@ public class RESTObjectMapper {
         mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
         mapper.registerModule(createPaimonRestJacksonModule());
         mapper.registerModule(new JavaTimeModule());
+        preWarm(mapper, DataField.class);
+        preWarm(mapper, ListViewsResponse.class);
+        preWarm(mapper, ListDatabasesResponse.class);
+        preWarm(mapper, AlterTableRequest.class);
+        preWarm(mapper, AlterViewRequest.class);
+        preWarm(mapper, ErrorResponse.class);
+        preWarm(mapper, ConfigResponse.class);
         return mapper;
+    }
+
+    private static <T> void preWarm(ObjectMapper mapper, Class<T> type) {
+        try {
+            mapper.readValue("{}", type);
+        } catch (Exception e) {
+
+        }
     }
 
     private static Module createPaimonRestJacksonModule() {
