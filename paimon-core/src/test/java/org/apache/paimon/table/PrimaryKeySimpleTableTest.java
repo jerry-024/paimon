@@ -30,7 +30,9 @@ import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.fs.FileIOFinder;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.BundleRecords;
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileKind;
+import org.apache.paimon.manifest.ManifestFileMeta;
 import org.apache.paimon.operation.FileStoreScan;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
@@ -106,6 +108,7 @@ import static org.apache.paimon.CoreOptions.FILE_FORMAT;
 import static org.apache.paimon.CoreOptions.FILE_FORMAT_PARQUET;
 import static org.apache.paimon.CoreOptions.LOOKUP_LOCAL_FILE_TYPE;
 import static org.apache.paimon.CoreOptions.MERGE_ENGINE;
+import static org.apache.paimon.CoreOptions.METADATA_STATS_MODE_PER_LEVEL;
 import static org.apache.paimon.CoreOptions.MergeEngine;
 import static org.apache.paimon.CoreOptions.MergeEngine.AGGREGATE;
 import static org.apache.paimon.CoreOptions.MergeEngine.DEDUPLICATE;
@@ -124,6 +127,73 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link PrimaryKeyFileStoreTable}. */
 public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
+
+    @Test
+    public void testPostponeBucket() throws Exception {
+        FileStoreTable table = createFileStoreTable(options -> options.set(BUCKET, -2));
+
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = writeBuilder.newWrite();
+                BatchTableCommit commit = writeBuilder.newCommit()) {
+            write.write(rowData(0, 0, 0L), BucketMode.POSTPONE_BUCKET);
+            commit.commit(write.prepareCommit());
+        }
+
+        Snapshot snapshot = table.latestSnapshot().get();
+        ManifestFileMeta manifest =
+                table.manifestListReader().read(snapshot.deltaManifestList()).get(0);
+        DataFileMeta file = table.manifestFileReader().read(manifest.fileName()).get(0).file();
+        assertThat(file.fileName()).endsWith(".avro");
+        assertThat(file.level()).isEqualTo(0);
+        assertThat(file.valueStatsCols()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "format-{0}")
+    @ValueSource(strings = {"avro", "parquet"})
+    public void testStatsModePerLevel(String format) throws Exception {
+        FileStoreTable table =
+                createFileStoreTable(
+                        options -> {
+                            options.set(FILE_FORMAT, format);
+                            options.set(
+                                    METADATA_STATS_MODE_PER_LEVEL,
+                                    Collections.singletonMap("0", "none"));
+                        });
+
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+
+        // first write
+        try (BatchTableWrite write = writeBuilder.newWrite();
+                BatchTableCommit commit = writeBuilder.newCommit()) {
+            write.write(rowData(0, 0, 0L));
+            commit.commit(write.prepareCommit());
+        }
+
+        // assert level 0
+        DataSplit split = (DataSplit) table.newScan().plan().splits().get(0);
+        DataFileMeta file = split.dataFiles().get(0);
+        assertThat(file.level()).isEqualTo(0);
+        assertThat(file.valueStatsCols()).isEmpty();
+
+        // second write
+        try (BatchTableWrite write = writeBuilder.newWrite();
+                BatchTableCommit commit = writeBuilder.newCommit()) {
+            write.write(rowData(0, 0, 0L));
+            commit.commit(write.prepareCommit());
+        }
+
+        // compact
+        try (BatchTableWrite write = writeBuilder.newWrite();
+                BatchTableCommit commit = writeBuilder.newCommit()) {
+            write.compact(split.partition(), split.bucket(), true);
+            commit.commit(write.prepareCommit());
+        }
+
+        // assert level 5
+        file = ((DataSplit) table.newScan().plan().splits().get(0)).dataFiles().get(0);
+        assertThat(file.level()).isEqualTo(5);
+        assertThat(file.valueStats().maxValues().getFieldCount()).isGreaterThan(4);
+    }
 
     @Test
     public void testMultipleWriters() throws Exception {
@@ -1298,11 +1368,11 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
                 getResult(read, toSplits(snapshotReader.read().dataSplits()), rowToString);
         assertThat(result).containsExactlyInAnyOrder("+I[1, 1, 2, 2]");
 
-        // 2. Update Before
+        // 2. Update Before: retract
         write.write(GenericRow.ofKind(RowKind.UPDATE_BEFORE, 1, 1, 2, 2));
         commit.commit(1, write.prepareCommit(true, 1));
         result = getResult(read, toSplits(snapshotReader.read().dataSplits()), rowToString);
-        assertThat(result).isEmpty();
+        assertThat(result).containsExactly("+I[1, 1, NULL, NULL]");
 
         // 3. Update After
         write.write(GenericRow.ofKind(RowKind.UPDATE_AFTER, 1, 1, 2, 3));
@@ -1324,6 +1394,44 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
 
         write.close();
         commit.close();
+    }
+
+    @Test
+    public void testAggregationRemoveRecordOnDeleteWithoutInsertData() throws Exception {
+        RowType rowType =
+                RowType.of(
+                        new DataType[] {
+                            DataTypes.INT(), DataTypes.INT(), DataTypes.INT(), DataTypes.INT()
+                        },
+                        new String[] {"pt", "a", "b", "c"});
+        FileStoreTable table =
+                createFileStoreTable(
+                        options -> {
+                            options.set("merge-engine", "aggregation");
+                            options.set("aggregation.remove-record-on-delete", "true");
+                        },
+                        rowType);
+
+        // delete twice to trigger merge when read
+        try (StreamTableWrite write = table.newWrite("");
+                StreamTableCommit commit = table.newCommit("")) {
+            write.write(GenericRow.ofKind(RowKind.DELETE, 1, 1, 2, 2));
+            commit.commit(0, write.prepareCommit(true, 0));
+            write.write(GenericRow.ofKind(RowKind.DELETE, 1, 1, 2, 2));
+            commit.commit(1, write.prepareCommit(true, 1));
+        }
+
+        // read auditLog table
+        ReadBuilder builder = new AuditLogTable(table).newReadBuilder();
+        try (RecordReader<InternalRow> reader =
+                builder.newRead().createReader(builder.newScan().plan())) {
+            reader.forEachRemaining(
+                    row -> {
+                        assertThat(row.getString(0).toString()).isEqualTo("-D");
+                        assertThat(row.isNullAt(1)).isFalse();
+                        assertThat(row.getInt(1)).isEqualTo(1);
+                    });
+        }
     }
 
     @Test
@@ -1673,19 +1781,23 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
                 .containsExactly("1|10|200|binary|varbinary|mapKey:mapVal|multiset");
     }
 
-    @Test
-    public void testInnerStreamScanMode() throws Exception {
-        FileStoreTable table = createFileStoreTable();
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testFileMonitorTableScan(boolean dvEnabled) throws Exception {
+        FileStoreTable table =
+                createFileStoreTable(options -> options.set(DELETION_VECTORS_ENABLED, dvEnabled));
 
         FileMonitorTable monitorTable = new FileMonitorTable(table);
         ReadBuilder readBuilder = monitorTable.newReadBuilder();
         StreamTableScan scan = readBuilder.newStreamScan();
         TableRead read = readBuilder.newRead();
+        IOManager ioManager = IOManager.create(tempDir.toString());
 
         // 1. first write
 
         BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
         BatchTableWrite write = writeBuilder.newWrite();
+        write.withIOManager(ioManager);
         BatchTableCommit commit = writeBuilder.newCommit();
 
         write.write(rowData(1, 10, 100L));
@@ -1707,6 +1819,7 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
         commit.close();
         writeBuilder = table.newBatchWriteBuilder();
         write = writeBuilder.newWrite();
+        write.withIOManager(ioManager);
         commit = writeBuilder.newCommit();
         write.write(rowData(1, 10, 100L));
         write.write(rowData(1, 11, 101L));
@@ -1736,6 +1849,7 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
         commit.close();
         writeBuilder = table.newBatchWriteBuilder().withOverwrite();
         write = writeBuilder.newWrite();
+        write.withIOManager(ioManager);
         commit = writeBuilder.newCommit();
         write.write(rowData(1, 10, 100L));
         write.write(rowData(1, 11, 101L));
