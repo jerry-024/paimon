@@ -23,6 +23,7 @@ import org.apache.paimon.rest.RESTToken;
 
 import org.apache.paimon.shade.guava30.com.google.common.collect.ImmutableMap;
 
+import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.types.Row;
 import org.junit.jupiter.api.Test;
 
@@ -101,5 +102,29 @@ class RESTCatalogITCase extends RESTCatalogITCaseBase {
                         DATABASE_NAME, TABLE_NAME));
         assertThat(batchSql(String.format("SELECT * FROM %s.%s", DATABASE_NAME, TABLE_NAME)))
                 .containsExactlyInAnyOrder(Row.of("1", 11.0D), Row.of("2", 22.0D));
+    }
+
+    @Test
+    public void testFunction() {
+        Identifier identifier = Identifier.create(DATABASE_NAME, TABLE_NAME);
+        RESTToken dataToken =
+                new RESTToken(
+                        ImmutableMap.of("akId", "akId", "akSecret", UUID.randomUUID().toString()),
+                        System.currentTimeMillis() + 100_000);
+        restCatalogServer.setDataToken(identifier, dataToken);
+        batchSql(
+                String.format(
+                        "INSERT INTO %s.%s VALUES ('tom', 11), ('jerry', 22)",
+                        DATABASE_NAME, TABLE_NAME));
+        String sql = String.format("SELECT sum_a(a) FROM %s.%s", DATABASE_NAME, TABLE_NAME);
+        String detailedExplanation =
+                tEnv.explainSql(sql, ExplainDetail.ESTIMATED_COST, ExplainDetail.CHANGELOG_MODE);
+        System.out.println(detailedExplanation);
+
+        List<Row> result =
+                batchSql(
+                        String.format(
+                                "SELECT sum_a(a), sum_b(b) FROM %s.%s", DATABASE_NAME, TABLE_NAME));
+        System.out.println(result.toString());
     }
 }

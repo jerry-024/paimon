@@ -88,6 +88,16 @@ under the License.
             <artifactId>paimon-shade-netty-4</artifactId>
             <version>${paimon.shade.netty.version}-${paimon.shade.version}</version>
         </dependency>
+<!--        <dependency>-->
+<!--            <groupId>com.github.javaparser</groupId>-->
+<!--            <artifactId>javaparser-core</artifactId>-->
+<!--            <version>3.24.2</version>-->
+<!--        </dependency>-->
+<!--        <dependency>-->
+<!--            <groupId>org.apache.commons</groupId>-->
+<!--            <artifactId>commons-lang3</artifactId>-->
+<!--            <version>3.12.0</version>-->
+<!--        </dependency>-->
 
         <!-- test dependencies -->
 
