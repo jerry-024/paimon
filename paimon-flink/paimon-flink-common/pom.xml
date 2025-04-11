@@ -60,6 +60,13 @@ under the License.
         </dependency>
 
         <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-python</artifactId>
+            <version>${flink.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
           <groupId>org.apache.flink</groupId>
           <artifactId>flink-clients</artifactId>
           <version>${flink.version}</version>
@@ -88,16 +95,6 @@ under the License.
             <artifactId>paimon-shade-netty-4</artifactId>
             <version>${paimon.shade.netty.version}-${paimon.shade.version}</version>
         </dependency>
-<!--        <dependency>-->
-<!--            <groupId>com.github.javaparser</groupId>-->
-<!--            <artifactId>javaparser-core</artifactId>-->
-<!--            <version>3.24.2</version>-->
-<!--        </dependency>-->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.commons</groupId>-->
-<!--            <artifactId>commons-lang3</artifactId>-->
-<!--            <version>3.12.0</version>-->
-<!--        </dependency>-->
 
         <!-- test dependencies -->
 
@@ -205,6 +202,18 @@ under the License.
             <artifactId>mockwebserver</artifactId>
             <version>${okhttp.version}</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-java</artifactId>
+            <version>1.20.1</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-java</artifactId>
+            <version>1.20.1</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 

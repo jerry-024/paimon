@@ -105,7 +105,7 @@ class RESTCatalogITCase extends RESTCatalogITCaseBase {
     }
 
     @Test
-    public void testFunction() {
+    public void testJavaFunction() {
         Identifier identifier = Identifier.create(DATABASE_NAME, TABLE_NAME);
         RESTToken dataToken =
                 new RESTToken(
@@ -125,6 +125,31 @@ class RESTCatalogITCase extends RESTCatalogITCaseBase {
                 batchSql(
                         String.format(
                                 "SELECT sum_a(a), sum_b(b) FROM %s.%s", DATABASE_NAME, TABLE_NAME));
+        System.out.println(result.toString());
+    }
+
+    @Test
+    public void testPythonFunction() {
+        Identifier identifier = Identifier.create(DATABASE_NAME, TABLE_NAME);
+        RESTToken dataToken =
+                new RESTToken(
+                        ImmutableMap.of("akId", "akId", "akSecret", UUID.randomUUID().toString()),
+                        System.currentTimeMillis() + 100_000);
+        restCatalogServer.setDataToken(identifier, dataToken);
+        batchSql(
+                String.format(
+                        "INSERT INTO %s.%s VALUES ('tom', 11), ('jerry', 22)",
+                        DATABASE_NAME, TABLE_NAME));
+        tEnv.getConfig()
+                .set(
+                        "python.files",
+                        "/Users/jerry/code/paimon/paimon/paimon-flink/paimon-flink-common");
+        tEnv.getConfig().set("python.client.executable", "python3.11");
+        tEnv.getConfig().set("python.executable", "python3.11");
+        List<Row> result =
+                batchSql(
+                        String.format(
+                                "SELECT test_py_str(a) FROM %s.%s", DATABASE_NAME, TABLE_NAME));
         System.out.println(result.toString());
     }
 }

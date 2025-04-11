@@ -1480,6 +1480,8 @@ public class FlinkCatalog extends AbstractCatalog {
                             new String[] {"Double"},
                             "(x Double) -> { return x + 10.0; }",
                             "Double"));
+        } else if (functionPath.getObjectName().contains("test_py_str")) {
+            return new PaimonPythonFunction(functionPath.getObjectName());
         }
         throw new FunctionNotExistException(getName(), functionPath);
     }
