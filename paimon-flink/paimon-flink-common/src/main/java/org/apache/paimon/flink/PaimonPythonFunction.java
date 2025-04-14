@@ -29,6 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+/** Paimon Python function. */
 public class PaimonPythonFunction implements CatalogFunction {
 
     private final String name;
@@ -49,7 +50,7 @@ public class PaimonPythonFunction implements CatalogFunction {
                 + "from pyflink.table import DataTypes\n"
                 + "@udf(input_types=DataTypes.STRING(), result_type=DataTypes.STRING())\n"
                 + "def eval(str):\n"
-                + "    return str + str\n";
+                + "    return f\"{str}11\"\n";
     }
 
     @Override

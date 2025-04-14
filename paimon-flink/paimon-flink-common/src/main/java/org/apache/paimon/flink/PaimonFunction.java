@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+/** paimon function. */
 public class PaimonFunction implements CatalogFunction {
 
     private final LambdaScalarFunction definition;

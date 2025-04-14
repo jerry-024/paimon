@@ -45,6 +45,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/** paimon flink java scalar function. */
 public class LambdaScalarFunction extends ScalarFunction
         implements FunctionDefinition, Serializable {
 
