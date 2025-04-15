@@ -226,6 +226,26 @@ public class CoreOptions implements Serializable {
                     .defaultValue("changelog-")
                     .withDescription("Specify the file name prefix of changelog files.");
 
+    public static final ConfigOption<String> CHANGELOG_FILE_FORMAT =
+            key("changelog-file.format")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specify the message format of changelog files, currently parquet, avro and orc are supported.");
+
+    public static final ConfigOption<String> CHANGELOG_FILE_COMPRESSION =
+            key("changelog-file.compression")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Changelog file compression.");
+
+    public static final ConfigOption<String> CHANGELOG_FILE_STATS_MODE =
+            key("changelog-file.stats-mode")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Changelog file metadata stats collection. none, counts, truncate(16), full is available.");
+
     public static final ConfigOption<Boolean> FILE_SUFFIX_INCLUDE_COMPRESSION =
             key("file.suffix.include.compression")
                     .booleanType()
@@ -612,26 +632,8 @@ public class CoreOptions implements Serializable {
                     .intType()
                     .defaultValue(5)
                     .withDescription(
-                            "For file set [f_0,...,f_N], the minimum file number which satisfies "
-                                    + "sum(size(f_i)) >= targetFileSize to trigger a compaction for "
-                                    + "append-only table. This value avoids almost-full-file to be compacted, "
-                                    + "which is not cost-effective.");
-
-    public static final ConfigOption<Integer> COMPACTION_MAX_FILE_NUM =
-            key("compaction.max.file-num")
-                    .intType()
-                    .noDefaultValue()
-                    .withFallbackKeys("compaction.early-max.file-num")
-                    .withDescription(
-                            Description.builder()
-                                    .text(
-                                            "For file set [f_0,...,f_N], the maximum file number to trigger a compaction "
-                                                    + "for append-only table, even if sum(size(f_i)) < targetFileSize. This value "
-                                                    + "avoids pending too much small files.")
-                                    .list(
-                                            text("Default value of Append Table is '50'."),
-                                            text("Default value of Bucketed Append Table is '5'."))
-                                    .build());
+                            "For file set [f_0,...,f_N], the minimum file number to trigger a compaction for "
+                                    + "append-only table.");
 
     public static final ConfigOption<ChangelogProducer> CHANGELOG_PRODUCER =
             key("changelog-producer")
@@ -1848,6 +1850,21 @@ public class CoreOptions implements Serializable {
         return options.get(CHANGELOG_FILE_PREFIX);
     }
 
+    @Nullable
+    public String changelogFileFormat() {
+        return options.get(CHANGELOG_FILE_FORMAT);
+    }
+
+    @Nullable
+    public String changelogFileCompression() {
+        return options.get(CHANGELOG_FILE_COMPRESSION);
+    }
+
+    @Nullable
+    public String changelogFileStatsMode() {
+        return options.get(CHANGELOG_FILE_STATS_MODE);
+    }
+
     public boolean fileSuffixIncludeCompression() {
         return options.get(FILE_SUFFIX_INCLUDE_COMPRESSION);
     }
@@ -2174,10 +2191,6 @@ public class CoreOptions implements Serializable {
 
     public int compactionMinFileNum() {
         return options.get(COMPACTION_MIN_FILE_NUM);
-    }
-
-    public Optional<Integer> compactionMaxFileNum() {
-        return options.getOptional(COMPACTION_MAX_FILE_NUM);
     }
 
     public long dynamicBucketTargetRowNum() {

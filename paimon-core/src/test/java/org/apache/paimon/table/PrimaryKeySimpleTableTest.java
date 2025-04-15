@@ -32,6 +32,7 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.BundleRecords;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileKind;
+import org.apache.paimon.manifest.ManifestEntry;
 import org.apache.paimon.manifest.ManifestFileMeta;
 import org.apache.paimon.operation.FileStoreScan;
 import org.apache.paimon.options.MemorySize;
@@ -99,6 +100,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.paimon.CoreOptions.BUCKET;
+import static org.apache.paimon.CoreOptions.CHANGELOG_FILE_FORMAT;
+import static org.apache.paimon.CoreOptions.CHANGELOG_FILE_STATS_MODE;
 import static org.apache.paimon.CoreOptions.CHANGELOG_NUM_RETAINED_MAX;
 import static org.apache.paimon.CoreOptions.CHANGELOG_NUM_RETAINED_MIN;
 import static org.apache.paimon.CoreOptions.CHANGELOG_PRODUCER;
@@ -108,6 +111,7 @@ import static org.apache.paimon.CoreOptions.FILE_FORMAT;
 import static org.apache.paimon.CoreOptions.FILE_FORMAT_PARQUET;
 import static org.apache.paimon.CoreOptions.LOOKUP_LOCAL_FILE_TYPE;
 import static org.apache.paimon.CoreOptions.MERGE_ENGINE;
+import static org.apache.paimon.CoreOptions.METADATA_STATS_MODE;
 import static org.apache.paimon.CoreOptions.METADATA_STATS_MODE_PER_LEVEL;
 import static org.apache.paimon.CoreOptions.MergeEngine;
 import static org.apache.paimon.CoreOptions.MergeEngine.AGGREGATE;
@@ -130,19 +134,23 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
 
     @Test
     public void testPostponeBucket() throws Exception {
-        FileStoreTable table = createFileStoreTable(options -> options.set(BUCKET, -2));
+        FileStoreTable table =
+                createFileStoreTable(options -> options.set(BUCKET, BucketMode.POSTPONE_BUCKET));
 
         BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
         try (BatchTableWrite write = writeBuilder.newWrite();
                 BatchTableCommit commit = writeBuilder.newCommit()) {
-            write.write(rowData(0, 0, 0L), BucketMode.POSTPONE_BUCKET);
+            write.write(rowData(0, 0, 0L));
             commit.commit(write.prepareCommit());
         }
 
         Snapshot snapshot = table.latestSnapshot().get();
         ManifestFileMeta manifest =
                 table.manifestListReader().read(snapshot.deltaManifestList()).get(0);
-        DataFileMeta file = table.manifestFileReader().read(manifest.fileName()).get(0).file();
+        ManifestEntry entry = table.manifestFileReader().read(manifest.fileName()).get(0);
+        assertThat(entry.bucket()).isEqualTo(BucketMode.POSTPONE_BUCKET);
+
+        DataFileMeta file = entry.file();
         assertThat(file.fileName()).endsWith(".avro");
         assertThat(file.level()).isEqualTo(0);
         assertThat(file.valueStatsCols()).isEmpty();
@@ -523,10 +531,20 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
                                 "+2|22|202|binary|varbinary|mapKey:mapVal|multiset"));
     }
 
-    @Test
-    public void testStreamingInputChangelog() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testStreamingInputChangelog(boolean specificConfig) throws Exception {
         FileStoreTable table =
-                createFileStoreTable(conf -> conf.set(CHANGELOG_PRODUCER, ChangelogProducer.INPUT));
+                createFileStoreTable(
+                        conf -> {
+                            conf.set(CHANGELOG_PRODUCER, ChangelogProducer.INPUT);
+                            if (specificConfig) {
+                                conf.set(FILE_FORMAT, "parquet");
+                                conf.set(METADATA_STATS_MODE, "full");
+                                conf.set(CHANGELOG_FILE_FORMAT, "avro");
+                                conf.set(CHANGELOG_FILE_STATS_MODE, "none");
+                            }
+                        });
         StreamTableWrite write = table.newWrite(commitUser);
         StreamTableCommit commit = table.newCommit(commitUser);
         write.write(rowData(1, 10, 100L));
@@ -555,6 +573,15 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
                         "+U 1|20|201|binary|varbinary|mapKey:mapVal|multiset",
                         "-U 1|10|101|binary|varbinary|mapKey:mapVal|multiset",
                         "+U 1|10|102|binary|varbinary|mapKey:mapVal|multiset");
+
+        if (specificConfig) {
+            Snapshot snapshot = table.latestSnapshot().get();
+            ManifestFileMeta manifest =
+                    table.manifestListReader().read(snapshot.changelogManifestList()).get(0);
+            DataFileMeta file = table.manifestFileReader().read(manifest.fileName()).get(0).file();
+            assertThat(file.fileName()).endsWith(".avro");
+            assertThat(file.valueStats().minValues().getFieldCount()).isEqualTo(0);
+        }
     }
 
     @Test
@@ -2125,13 +2152,20 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
         innerTestTableQuery(table);
     }
 
-    @Test
-    public void testLookupWithDropDelete() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testLookupWithDropDelete(boolean specificConfig) throws Exception {
         FileStoreTable table =
                 createFileStoreTable(
                         conf -> {
                             conf.set(CHANGELOG_PRODUCER, LOOKUP);
                             conf.set("num-levels", "2");
+                            if (specificConfig) {
+                                conf.set(FILE_FORMAT, "parquet");
+                                conf.set(METADATA_STATS_MODE, "full");
+                                conf.set(CHANGELOG_FILE_FORMAT, "avro");
+                                conf.set(CHANGELOG_FILE_STATS_MODE, "none");
+                            }
                         });
         IOManager ioManager = IOManager.create(tablePath.toString());
         StreamTableWrite write = table.newWrite(commitUser).withIOManager(ioManager);
@@ -2160,6 +2194,14 @@ public class PrimaryKeySimpleTableTest extends SimpleTableTestBase {
                 .isEqualTo(
                         Collections.singletonList(
                                 "1|2|200|binary|varbinary|mapKey:mapVal|multiset"));
+
+        if (specificConfig) {
+            ManifestFileMeta manifest =
+                    table.manifestListReader().read(latestSnapshot.changelogManifestList()).get(0);
+            DataFileMeta file = table.manifestFileReader().read(manifest.fileName()).get(0).file();
+            assertThat(file.fileName()).endsWith(".avro");
+            assertThat(file.valueStats().minValues().getFieldCount()).isEqualTo(0);
+        }
     }
 
     @ParameterizedTest(name = "changelog-producer = {0}")
