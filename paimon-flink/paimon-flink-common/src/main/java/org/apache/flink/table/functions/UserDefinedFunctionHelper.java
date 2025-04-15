@@ -18,7 +18,7 @@
 
 package org.apache.flink.table.functions;
 
-import org.apache.paimon.flink.PaimonFunction;
+import org.apache.paimon.flink.PaimonJavaFunction;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ExecutionConfig.ClosureCleanerLevel;
@@ -202,9 +202,9 @@ public final class UserDefinedFunctionHelper {
             String name,
             CatalogFunction catalogFunction) {
         try {
-            if (catalogFunction instanceof PaimonFunction) {
-                PaimonFunction paimonFunction = (PaimonFunction) catalogFunction;
-                return (UserDefinedFunction) paimonFunction.getDefinition();
+            if (catalogFunction instanceof PaimonJavaFunction) {
+                PaimonJavaFunction paimonJavaFunction = (PaimonJavaFunction) catalogFunction;
+                return (UserDefinedFunction) paimonJavaFunction.getDefinition();
             }
             switch (catalogFunction.getFunctionLanguage()) {
                 case PYTHON:

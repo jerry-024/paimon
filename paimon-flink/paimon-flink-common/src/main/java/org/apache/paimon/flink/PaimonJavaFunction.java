@@ -29,11 +29,11 @@ import java.util.List;
 import java.util.Optional;
 
 /** paimon function. */
-public class PaimonFunction implements CatalogFunction {
+public class PaimonJavaFunction implements CatalogFunction {
 
     private final LambdaScalarFunction definition;
 
-    PaimonFunction(LambdaScalarFunction definition) {
+    PaimonJavaFunction(LambdaScalarFunction definition) {
         this.definition = definition;
     }
 

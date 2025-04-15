@@ -1467,14 +1467,14 @@ public class FlinkCatalog extends AbstractCatalog {
     public final CatalogFunction getFunction(ObjectPath functionPath)
             throws FunctionNotExistException, CatalogException {
         if (functionPath.getObjectName().contains("sum_a")) {
-            return new PaimonFunction(
+            return new PaimonJavaFunction(
                     new LambdaScalarFunction(
                             "sum_a",
                             new String[] {"String"},
                             "(x String) -> { return \"hello \" + x; }",
                             "String"));
         } else if (functionPath.getObjectName().contains("sum_b")) {
-            return new PaimonFunction(
+            return new PaimonJavaFunction(
                     new LambdaScalarFunction(
                             "sum_b",
                             new String[] {"Double"},
