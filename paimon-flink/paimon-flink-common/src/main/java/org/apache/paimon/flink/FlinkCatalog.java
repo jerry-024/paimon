@@ -61,6 +61,7 @@ import org.apache.flink.table.catalog.CatalogPartitionSpec;
 import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.catalog.CatalogView;
 import org.apache.flink.table.catalog.Column;
+import org.apache.flink.table.catalog.FunctionLanguage;
 import org.apache.flink.table.catalog.IntervalFreshness;
 import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.catalog.ResolvedCatalogBaseTable;
@@ -101,6 +102,8 @@ import org.apache.flink.table.catalog.stats.CatalogTableStatistics;
 import org.apache.flink.table.expressions.Expression;
 import org.apache.flink.table.factories.Factory;
 import org.apache.flink.table.procedures.Procedure;
+import org.apache.flink.table.resource.ResourceType;
+import org.apache.flink.table.resource.ResourceUri;
 import org.apache.flink.table.types.logical.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1481,7 +1484,14 @@ public class FlinkCatalog extends AbstractCatalog {
                             "(x Double) -> { return x + 10.0; }",
                             "Double"));
         } else if (functionPath.getObjectName().contains("test_py_str")) {
-            return new PaimonPythonFunction(functionPath.getObjectName());
+            //            ResourceUri resourceUri = new ResourceUri(ResourceType.FILE,
+            // "/Users/jerry/code/paimon/paimon/paimon-flink/paimon-flink-common/test_py_str3.py");
+            ResourceUri resourceUri =
+                    new ResourceUri(
+                            ResourceType.FILE,
+                            "oss://paimon-test-2/artifacts/namespaces/paimon-test-default/test_py_str2.py");
+            return new PaimonFileFunction(
+                    resourceUri, "test_py_str2.eval", FunctionLanguage.PYTHON);
         }
         throw new FunctionNotExistException(getName(), functionPath);
     }
