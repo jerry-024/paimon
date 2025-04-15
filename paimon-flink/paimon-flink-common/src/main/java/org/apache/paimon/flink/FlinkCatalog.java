@@ -1484,12 +1484,12 @@ public class FlinkCatalog extends AbstractCatalog {
                             "(x Double) -> { return x + 10.0; }",
                             "Double"));
         } else if (functionPath.getObjectName().contains("test_py_str")) {
-            //            ResourceUri resourceUri = new ResourceUri(ResourceType.FILE,
-            // "/Users/jerry/code/paimon/paimon/paimon-flink/paimon-flink-common/test_py_str3.py");
-            ResourceUri resourceUri =
-                    new ResourceUri(
-                            ResourceType.FILE,
-                            "oss://paimon-test-2/artifacts/namespaces/paimon-test-default/test_py_str2.py");
+                        ResourceUri resourceUri = new ResourceUri(ResourceType.FILE,
+             "/Users/jerry/code/paimon/paimon/paimon-flink/paimon-flink-common/test_py_str2.py");
+//            ResourceUri resourceUri =
+//                    new ResourceUri(
+//                            ResourceType.FILE,
+//                            "oss://paimon-test-2/artifacts/namespaces/paimon-test-default/test_py_str2.py");
             return new PaimonFileFunction(
                     resourceUri, "test_py_str2.eval", FunctionLanguage.PYTHON);
         }

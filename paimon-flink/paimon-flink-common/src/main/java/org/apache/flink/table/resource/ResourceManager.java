@@ -57,6 +57,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+/** resource manager for resource. */
 @Internal
 public class ResourceManager implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(ResourceManager.class);

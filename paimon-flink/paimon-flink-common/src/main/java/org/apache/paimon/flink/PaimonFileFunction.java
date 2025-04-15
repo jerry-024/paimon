@@ -26,7 +26,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-/** paimon file function */
+/** paimon file function. */
 public class PaimonFileFunction implements CatalogFunction {
 
     private final ResourceUri resourceUri;
