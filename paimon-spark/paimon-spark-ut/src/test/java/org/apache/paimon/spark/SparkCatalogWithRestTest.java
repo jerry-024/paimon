@@ -131,6 +131,7 @@ public class SparkCatalogWithRestTest {
         spark.sql("INSERT INTO t1 VALUES (1, 1, '1'), (2, 2, '2'), (3, 3, '3')");
         List<Row> data = spark.sql("select c from t1").collectAsList();
         data = spark.sql("select paimon.db2.test(c, a) from t1").collectAsList();
+        data = spark.sql("select paimon.db2.test('haha', 5555)").collectAsList();
         spark.close();
     }
 }

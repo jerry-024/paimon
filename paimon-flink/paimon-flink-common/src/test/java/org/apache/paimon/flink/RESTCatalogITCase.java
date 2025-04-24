@@ -129,7 +129,7 @@ class RESTCatalogITCase extends RESTCatalogITCaseBase {
     }
 
     @Test
-    public void testPythonFunction() {
+    public void testJavaFileFunction() {
         Identifier identifier = Identifier.create(DATABASE_NAME, TABLE_NAME);
         RESTToken dataToken =
                 new RESTToken(
@@ -140,12 +140,9 @@ class RESTCatalogITCase extends RESTCatalogITCaseBase {
                 String.format(
                         "INSERT INTO %s.%s VALUES ('tom', 11), ('jerry', 22)",
                         DATABASE_NAME, TABLE_NAME));
-        tEnv.getConfig().set("python.client.executable", "python3.11");
-        tEnv.getConfig().set("python.executable", "python3.11");
         List<Row> result =
                 batchSql(
-                        String.format(
-                                "SELECT test_py_str2(a) FROM %s.%s", DATABASE_NAME, TABLE_NAME));
+                        String.format("SELECT test_str2(a) FROM %s.%s", DATABASE_NAME, TABLE_NAME));
         System.out.println(result.toString());
     }
 }

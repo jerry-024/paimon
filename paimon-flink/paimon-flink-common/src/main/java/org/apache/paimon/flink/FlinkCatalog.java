@@ -1469,32 +1469,25 @@ public class FlinkCatalog extends AbstractCatalog {
     @Override
     public final CatalogFunction getFunction(ObjectPath functionPath)
             throws FunctionNotExistException, CatalogException {
-        if (functionPath.getObjectName().contains("sum_a")) {
-            return new PaimonJavaFunction(
-                    new LambdaScalarFunction(
-                            "sum_a",
-                            new String[] {"String"},
-                            "(x String) -> { return \"hello \" + x; }",
-                            "String"));
-        } else if (functionPath.getObjectName().contains("sum_b")) {
-            return new PaimonJavaFunction(
-                    new LambdaScalarFunction(
-                            "sum_b",
-                            new String[] {"Double"},
-                            "(x Double) -> { return x + 10.0; }",
-                            "Double"));
-        } else if (functionPath.getObjectName().contains("test_py_str")) {
+        if (functionPath.getObjectName().contains("test_str2")) {
             ResourceUri resourceUri =
                     new ResourceUri(
-                            ResourceType.FILE,
-                            "/Users/jerry/code/paimon/paimon/paimon-flink/paimon-flink-common/test_py_str2.py");
+                            ResourceType.JAR,
+                            FlinkCatalog.class
+                                    .getProtectionDomain()
+                                    .getCodeSource()
+                                    .getLocation()
+                                    .getPath()
+                                    .toString()
+                                    .replaceAll(
+                                            "target/classes/", "original-flink-streaming-udf.jar"));
             //            ResourceUri resourceUri =
             //                    new ResourceUri(
             //                            ResourceType.FILE,
             //
             // "oss://paimon-test-2/artifacts/namespaces/paimon-test-default/test_py_str2.py");
             return new PaimonFileFunction(
-                    resourceUri, "test_py_str2.eval", FunctionLanguage.PYTHON);
+                    resourceUri, "com.streaming.flink.udf.StrUdf", FunctionLanguage.JAVA);
         }
         throw new FunctionNotExistException(getName(), functionPath);
     }
