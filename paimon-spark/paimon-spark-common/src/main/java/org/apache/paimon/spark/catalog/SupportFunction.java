@@ -18,6 +18,7 @@
 
 package org.apache.paimon.spark.catalog;
 
+import org.apache.paimon.spark.LambdaScalarFunction;
 import org.apache.paimon.spark.catalog.functions.PaimonFunctions;
 
 import org.apache.spark.sql.catalyst.analysis.NoSuchFunctionException;
@@ -26,6 +27,10 @@ import org.apache.spark.sql.connector.catalog.FunctionCatalog;
 import org.apache.spark.sql.connector.catalog.Identifier;
 import org.apache.spark.sql.connector.catalog.SupportsNamespaces;
 import org.apache.spark.sql.connector.catalog.functions.UnboundFunction;
+import org.apache.spark.sql.types.DataType;
+
+import static org.apache.spark.sql.types.DataTypes.IntegerType;
+import static org.apache.spark.sql.types.DataTypes.StringType;
 
 /** Catalog methods for working with Functions. */
 public interface SupportFunction extends FunctionCatalog, SupportsNamespaces {
@@ -55,6 +60,11 @@ public interface SupportFunction extends FunctionCatalog, SupportsNamespaces {
             if (func != null) {
                 return func;
             }
+            return new LambdaScalarFunction(
+                    ident.name(),
+                    new DataType[] {StringType, IntegerType},
+                    StringType,
+                    "(x String, y Integer) -> { return \"hello \" + x + y; }");
         }
 
         throw new NoSuchFunctionException(ident);

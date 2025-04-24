@@ -28,6 +28,7 @@ import org.apache.paimon.rest.responses.ConfigResponse;
 
 import org.apache.paimon.shade.guava30.com.google.common.collect.ImmutableMap;
 
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -102,6 +104,33 @@ public class SparkCatalogWithRestTest {
                 .containsExactlyInAnyOrder("t1");
         spark.sql("DROP TABLE t1");
         assertThat(spark.sql("SHOW TABLES").collectAsList().size() == 0);
+        spark.close();
+    }
+
+    @Test
+    public void testFunction() {
+        SparkSession spark =
+                SparkSession.builder()
+                        .config("spark.sql.catalog.paimon", SparkCatalog.class.getName())
+                        .config("spark.sql.catalog.paimon.metastore", "rest")
+                        .config("spark.sql.catalog.paimon.uri", serverUrl)
+                        .config("spark.sql.catalog.paimon.token", initToken)
+                        .config("spark.sql.catalog.paimon.warehouse", warehouse)
+                        .config(
+                                "spark.sql.catalog.paimon.token.provider",
+                                AuthProviderEnum.BEAR.identifier())
+                        .config(
+                                "spark.sql.extensions",
+                                "org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions")
+                        .master("local[2]")
+                        .getOrCreate();
+
+        spark.sql("CREATE DATABASE paimon.db2");
+        spark.sql("USE paimon.db2");
+        spark.sql("CREATE TABLE t1 (a INT, b INT, c STRING)");
+        spark.sql("INSERT INTO t1 VALUES (1, 1, '1'), (2, 2, '2'), (3, 3, '3')");
+        List<Row> data = spark.sql("select c from t1").collectAsList();
+        data = spark.sql("select paimon.db2.test(c, a) from t1").collectAsList();
         spark.close();
     }
 }
