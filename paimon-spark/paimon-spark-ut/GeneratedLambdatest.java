@@ -1,1 +1,1 @@
-public class GeneratedLambdatest { public static java.lang.Object apply(String x, Integer y){ String z = "hello"; return z + x + y; } }
+public class GeneratedLambdatest { public static String apply(String x, Integer y){ String z = "hello"; return z + x + y; } }

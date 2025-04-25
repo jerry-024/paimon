@@ -35,13 +35,18 @@ public class PaimonSparkScalarFunction implements ScalarFunction<Object>, Serial
     private static final long serialVersionUID = 1L;
     private final String functionName;
     private final List<DataType> inputTypes;
+    private final String resultType;
     private String lambdaExpression;
     private transient Method compiledMethod;
 
     public PaimonSparkScalarFunction(
-            String functionName, List<DataType> inputTypes, String lambdaExpression) {
+            String functionName,
+            List<DataType> inputTypes,
+            String resultType,
+            String lambdaExpression) {
         this.functionName = functionName;
         this.inputTypes = inputTypes;
+        this.resultType = resultType;
         this.lambdaExpression = lambdaExpression;
     }
 
@@ -61,7 +66,7 @@ public class PaimonSparkScalarFunction implements ScalarFunction<Object>, Serial
             if (this.compiledMethod == null) {
                 this.compiledMethod =
                         JavaLambdaStringToMethodConverter.compileAndLoadMethod(
-                                functionName, lambdaExpression, "java.lang.Object");
+                                functionName, lambdaExpression, resultType);
             }
             List<Object> parameters = new ArrayList<>();
             for (int i = 0; i < inputTypes().length; i++) {

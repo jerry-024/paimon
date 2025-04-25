@@ -60,7 +60,8 @@ public class LambdaScalarFunction implements UnboundFunction, Serializable {
             for (StructField field : inputType.fields()) {
                 inputTypes.add(field.dataType());
             }
-            return new PaimonSparkScalarFunction(functionName, inputTypes, this.lambdaExpression);
+            return new PaimonSparkScalarFunction(
+                    functionName, inputTypes, "String", this.lambdaExpression);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
