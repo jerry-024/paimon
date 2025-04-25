@@ -64,7 +64,7 @@ public interface SupportFunction extends FunctionCatalog, SupportsNamespaces {
                     ident.name(),
                     new DataType[] {StringType, IntegerType},
                     StringType,
-                    "(x String, y Integer) -> { return \"hello \" + x + y; }");
+                    "(String x, Integer y) -> { String z = \"hello\"; return z + x + y; }");
         }
 
         throw new NoSuchFunctionException(ident);

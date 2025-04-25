@@ -33,13 +33,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Util class for compiling and loading Java lambda expressions as methods. */
-public class JavaLambdaExpression2MethodUtil {
+public class JavaLambdaStringToMethodConverter {
+    private static final Pattern LAMBDA_PATTERN =
+            Pattern.compile("\\s*\\(([^)]*)\\)\\s*->\\s*(.+)\\s*");
+
     public static Method compileAndLoadMethod(
             String functionName, String lambdaExpression, String returnType) throws Exception {
-        String methodSignature = generateMethodSignature(lambdaExpression, returnType);
-        String methodBody = generateMethodBody(lambdaExpression);
         String className = "GeneratedLambda" + functionName;
-        String fullMethod = methodSignature + " { " + methodBody + " }";
+        String fullMethod = parseLambdaWithType(returnType, lambdaExpression, "apply");
 
         String javaCode = "public class " + className + " { " + fullMethod + " }";
 
@@ -60,49 +61,39 @@ public class JavaLambdaExpression2MethodUtil {
         return compiledClass.getDeclaredMethods()[0];
     }
 
-    private static String generateMethodSignature(String lambdaExpression, String returnType) {
-        Pattern paramPattern = Pattern.compile("\\((.*?)\\)");
-        Matcher paramMatcher = paramPattern.matcher(lambdaExpression);
-
-        if (!paramMatcher.find()) {
-            throw new IllegalArgumentException("Invalid lambda expression format");
+    public static String parseLambdaWithType(
+            String outputType, String expression, String methodName) {
+        Matcher matcher = LAMBDA_PATTERN.matcher(expression);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Invalid lambda expression: " + expression);
         }
 
-        String[] params = paramMatcher.group(1).split(",");
-        String methodName = "apply";
+        String parameters = matcher.group(1).trim();
+        String body = matcher.group(2).trim();
 
-        StringBuilder signature = new StringBuilder();
-        signature
-                .append("public static ")
-                .append(returnType)
+        StringBuilder method = new StringBuilder();
+        method.append("public static ")
+                .append(outputType)
                 .append(" ")
                 .append(methodName)
-                .append("(");
+                .append("(")
+                .append(parameters)
+                .append(")");
 
-        for (int i = 0; i < params.length; i++) {
-            String[] paramParts = params[i].trim().split("\\s+");
-            if (paramParts.length != 2) {
-                throw new IllegalArgumentException("Invalid parameter format: " + params[i]);
-            }
-            String paramType = paramParts[1];
-            String paramName = paramParts[0];
-
-            signature.append(paramType).append(" ").append(paramName);
-            if (i < params.length - 1) {
-                signature.append(", ");
-            }
+        if (!body.startsWith("{")) {
+            method.append("{");
         }
-
-        signature.append(")");
-        return signature.toString();
-    }
-
-    private static String generateMethodBody(String lambdaExpression) {
-        String[] parts = lambdaExpression.split("->");
-        String body = parts[1].trim();
-        if (body.startsWith("{")) {
-            return body;
+        if (!body.contains("return ")) {
+            method.append("return ");
         }
-        return "return " + body + ";";
+        if (!body.contains(";")) {
+            method.append(body).append(";");
+        } else {
+            method.append(body);
+        }
+        if (!body.endsWith("}")) {
+            method.append("{");
+        }
+        return method.toString();
     }
 }

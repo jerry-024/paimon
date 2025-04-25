@@ -60,7 +60,7 @@ public class PaimonSparkScalarFunction implements ScalarFunction<Object>, Serial
         try {
             if (this.compiledMethod == null) {
                 this.compiledMethod =
-                        JavaLambdaExpression2MethodUtil.compileAndLoadMethod(
+                        JavaLambdaStringToMethodConverter.compileAndLoadMethod(
                                 functionName, lambdaExpression, "java.lang.Object");
             }
             List<Object> parameters = new ArrayList<>();
