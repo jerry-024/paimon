@@ -1,0 +1,1 @@
+public class GeneratedLambdatest { public static java.lang.Object apply(String x, Integer y) { { return "hello " + x + y; } } }

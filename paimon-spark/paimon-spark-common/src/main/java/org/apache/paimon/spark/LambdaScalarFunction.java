@@ -28,7 +28,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-/** paimon flink java scalar function. */
+/** paimon spark java lambda scalar function. */
 public class LambdaScalarFunction implements UnboundFunction, Serializable {
 
     private static final long serialVersionUID = 1L;

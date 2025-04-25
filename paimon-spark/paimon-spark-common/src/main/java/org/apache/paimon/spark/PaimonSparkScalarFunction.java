@@ -23,22 +23,10 @@ import org.apache.spark.sql.connector.catalog.functions.ScalarFunction;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.unsafe.types.UTF8String;
 
-import javax.tools.JavaCompiler;
-import javax.tools.JavaFileObject;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
-
-import java.io.File;
-import java.io.FileWriter;
 import java.io.Serializable;
 import java.lang.reflect.Method;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.apache.spark.sql.types.DataTypes.IntegerType;
 import static org.apache.spark.sql.types.DataTypes.StringType;
@@ -72,7 +60,8 @@ public class PaimonSparkScalarFunction implements ScalarFunction<Object>, Serial
         try {
             if (this.compiledMethod == null) {
                 this.compiledMethod =
-                        compileAndLoadMethod(functionName, lambdaExpression, "java.lang.Object");
+                        JavaLambdaExpression2MethodUtil.compileAndLoadMethod(
+                                functionName, lambdaExpression, "java.lang.Object");
             }
             List<Object> parameters = new ArrayList<>();
             for (int i = 0; i < inputTypes().length; i++) {
@@ -99,77 +88,5 @@ public class PaimonSparkScalarFunction implements ScalarFunction<Object>, Serial
     @Override
     public String canonicalName() {
         return functionName;
-    }
-
-    private Method compileAndLoadMethod(
-            String functionName, String lambdaExpression, String returnType) throws Exception {
-        String methodSignature = generateMethodSignature(lambdaExpression, returnType);
-        String methodBody = generateMethodBody(lambdaExpression);
-        String className = "GeneratedLambda" + functionName;
-        String fullMethod = methodSignature + " { " + methodBody + " }";
-
-        String javaCode = "public class " + className + " { " + fullMethod + " }";
-
-        File sourceFile = new File(className + ".java");
-        try (FileWriter writer = new FileWriter(sourceFile)) {
-            writer.write(javaCode);
-        }
-
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
-        Iterable<? extends JavaFileObject> compilationUnits =
-                fileManager.getJavaFileObjectsFromFiles(Arrays.asList(sourceFile));
-        compiler.getTask(null, fileManager, null, null, null, compilationUnits).call();
-        fileManager.close();
-        URLClassLoader classLoader =
-                URLClassLoader.newInstance(new URL[] {new File(".").toURI().toURL()});
-        Class<?> compiledClass = Class.forName(className, true, classLoader);
-        return compiledClass.getDeclaredMethods()[0];
-    }
-
-    public static String generateMethodSignature(String lambdaExpression, String returnType) {
-        Pattern paramPattern = Pattern.compile("\\((.*?)\\)");
-        Matcher paramMatcher = paramPattern.matcher(lambdaExpression);
-
-        if (!paramMatcher.find()) {
-            throw new IllegalArgumentException("Invalid lambda expression format");
-        }
-
-        String[] params = paramMatcher.group(1).split(",");
-        String methodName = "apply";
-
-        StringBuilder signature = new StringBuilder();
-        signature
-                .append("public static ")
-                .append(returnType)
-                .append(" ")
-                .append(methodName)
-                .append("(");
-
-        for (int i = 0; i < params.length; i++) {
-            String[] paramParts = params[i].trim().split("\\s+");
-            if (paramParts.length != 2) {
-                throw new IllegalArgumentException("Invalid parameter format: " + params[i]);
-            }
-            String paramType = paramParts[1];
-            String paramName = paramParts[0];
-
-            signature.append(paramType).append(" ").append(paramName);
-            if (i < params.length - 1) {
-                signature.append(", ");
-            }
-        }
-
-        signature.append(")");
-        return signature.toString();
-    }
-
-    public static String generateMethodBody(String lambdaExpression) {
-        String[] parts = lambdaExpression.split("->");
-        String body = parts[1].trim();
-        if (body.startsWith("{")) {
-            return body;
-        }
-        return "return " + body + ";";
     }
 }
