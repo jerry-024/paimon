@@ -19,6 +19,8 @@
 package org.apache.paimon.cli.utils;
 
 import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -40,7 +42,9 @@ public class Printer {
 
         if (Printer.isOutputJSON()) {
             try {
-                return OBJECT_MAPPER.writeValueAsString(object);
+                ObjectMapper objectMapper = OBJECT_MAPPER;
+                objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+                return objectMapper.writeValueAsString(object);
             } catch (JsonProcessingException ignore) {
             }
         }
@@ -62,15 +66,6 @@ public class Printer {
     public static void println(final String msg) {
         System.out.println(msg);
         System.out.flush();
-    }
-
-    public static void print(final String msg) {
-        System.out.print(msg);
-        System.out.flush();
-    }
-
-    public static void printError(final String msg) {
-        System.err.println(msg);
     }
 
     public static void printException(final String msg, final Exception e) {

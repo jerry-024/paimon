@@ -18,60 +18,73 @@
 
 package org.apache.paimon.cli;
 
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.cli.utils.Exit;
 import org.apache.paimon.cli.utils.Printer;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTApi;
+import org.apache.paimon.utils.StringUtils;
 
-import sun.misc.Signal;
-import sun.misc.SignalHandler;
-
-import static org.apache.paimon.options.CatalogOptions.WAREHOUSE;
-import static org.apache.paimon.rest.RESTCatalogOptions.DLF_ACCESS_KEY_ID;
-import static org.apache.paimon.rest.RESTCatalogOptions.DLF_ACCESS_KEY_SECRET;
-import static org.apache.paimon.rest.RESTCatalogOptions.DLF_REGION;
-import static org.apache.paimon.rest.RESTCatalogOptions.TOKEN_PROVIDER;
-import static org.apache.paimon.rest.RESTCatalogOptions.URI;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 /** ConsoleCmd. */
 public class ConsoleCmd {
 
+    private static Properties properties = new Properties();
+
     public static void main(String[] args) {
-        ConsoleCmd.installSignal();
         RESTApi api = createRestApi();
         execute(api, args);
     }
 
     public static void execute(RESTApi api, String[] args) {
+        Printer.log(String.format("exec %s", Printer.toStringify(args)));
         try {
-            String object = "table";
-            String action = "list";
-            if (args.length > 2) {
-                object = args[0];
-                action = args[1];
-            }
-            Printer.log(String.format("%s %s", object, action));
+            //            String object = "table";
+            //            String action = "list";
+            //            if (args.length > 2) {
+            //                object = args[0];
+            //                action = args[1];
+            //            }
             Printer.log(api.listTables("default"));
+            Printer.log(api.getTable(new Identifier("default", "view1")));
         } catch (Exception e) {
             Exit.error("failed.....", e);
         }
     }
 
     private static RESTApi createRestApi() {
-        Options options = new Options();
-        options.set(URI, "http://dlf-regres-test-cn-hangzhou-vpc.taobao.net");
-        options.set(DLF_REGION, "cn-hangzhou");
-        options.set(WAREHOUSE, "bennett_e2e_test");
-        options.set(TOKEN_PROVIDER, "dlf");
-        options.set(DLF_ACCESS_KEY_ID, "LTAI5tFwPB5jjvfkHXYvj5Gt");
-        options.set(DLF_ACCESS_KEY_SECRET, "xxxx");
-        return new RESTApi(options);
+        String paimonCliConfigDir = "./conf";
+        if (StringUtils.isNotEmpty(System.getenv("PAIMON_HOME"))) {
+            paimonCliConfigDir = System.getenv("PAIMON_HOME") + "/conf";
+        }
+        try {
+            Map<String, String> conf =
+                    loadProperties(paimonCliConfigDir + "/paimon-cli.properties");
+            Options options = new Options(conf);
+            return new RESTApi(options);
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException("Could not find config file", e);
+        }
     }
 
-    private static void installSignal() {
-        SignalHandler signalHandler = signal -> Exit.error("Stopped successfully.");
-        Signal.handle(new Signal("INT"), signalHandler);
-        Signal.handle(new Signal("HUP"), signalHandler);
-        Signal.handle(new Signal("TERM"), signalHandler);
+    private static Map<String, String> loadProperties(String filePath)
+            throws FileNotFoundException {
+        try (InputStream input = new FileInputStream(filePath)) {
+            properties.load(input);
+            Map<String, String> map = new HashMap<>();
+            for (String key : properties.stringPropertyNames()) {
+                String value = properties.getProperty(key);
+                map.put(key, value);
+            }
+            return map;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load YAML file: " + filePath, e);
+        }
     }
 }

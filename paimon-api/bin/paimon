@@ -34,8 +34,6 @@
 #
 #   PAIMON_CONF_DIR     Alternate conf dir. Default is ${PAIMON_HOME}/conf.
 #
-#   PAIMON_ROOT_LOGGER  The root appender. Default is INFO,console
-#
 
 #old_path=`pwd`
 #echo $old_path
