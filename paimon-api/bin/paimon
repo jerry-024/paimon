@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+################################################################################
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
+
+# Paimon command script
+#
+# Environment Variables
+#
+#   JAVA_HOME        The java implementation to use.  Overrides JAVA_HOME.
+#
+#   PAIMON_CLASSPATH    Extra Java CLASSPATH entries.
+#
+#
+#   PAIMON_HEAPSIZE     The maximum amount of heap to use, in MB.
+#                    Default is 1000.
+#
+#   PAIMON_OPTS         Extra Java runtime options.
+#
+#   PAIMON_CONF_DIR     Alternate conf dir. Default is ${PAIMON_HOME}/conf.
+#
+#   PAIMON_ROOT_LOGGER  The root appender. Default is INFO,console
+#
+
+#old_path=`pwd`
+#echo $old_path
+export PAIMON_HOME=`dirname "$0"`
+export PAIMON_HOME=`cd $PAIMON_HOME/..; pwd`
+export PAIMON_CONF_DIR=$PAIMON_HOME/conf
+#cd $old_path
+
+VERSION="PAIMON Cli 1.0.0"
+
+# if no args specified, show usage
+if [ $# = 0  ]; then
+    echo $VERSION
+    echo "Copyright 2025 Paimon, All rights reserved."
+    echo ""
+    echo "Usage: paimon <object> <COMMAND> [<COMMON-ARGS>]"
+    exit 0
+fi
+
+ 
+ function printHelp()
+ {
+    echo "Usage: paimon table list [<COMMON-ARGS>]"
+
+    echo "Example: "
+    echo "     ../paimon-api/bin/paimon table list"
+    echo "    paimon --help"
+    echo ""
+ }
+
+
+function killJava()
+{
+    local child=$1
+    echo "Try to kill process PAIMON Cli, PID:$child ."
+    killTime=1
+    while [ true ]; do
+        sleep 1
+        output=`ps -p $child | grep -v PID`
+        echo "Try to kill process PAIMON Cli, Times:$killTime PID:$child ."
+        let killTime=${killTime}+1
+        if [ -z "$output" ]; then
+            echo "Kill completed ."
+            break
+        fi
+        kill -15 $child
+    done
+}
+
+# get arguments
+COMMAND=$1
+
+# some Java parameters
+if [ "$JAVA_HOME" != "" ]; then
+  #echo "run java in $JAVA_HOME"
+  JAVA_HOME=$JAVA_HOME
+fi
+  
+if [ "$JAVA_HOME" = "" ]; then
+  echo "Error: JAVA_HOME not setting！"
+  exit 1
+fi
+
+JAVA=$JAVA_HOME/bin/java
+JAVA_HEAP_MAX=-Xmx1024m 
+
+if [ "$PAIMON_HOME" = "" ]; then
+  echo "Error: PAIMON_HOME not setting！"
+  exit 1
+fi
+
+
+# check envvars which might override default args
+if [ "$PAIMON_HEAPSIZE" != "" ]; then
+  #echo "run with heapsize $PAIMON_HEAPSIZE"
+  JAVA_HEAP_MAX="-Xmx""$PAIMON_HEAPSIZE""m"
+  #echo $JAVA_HEAP_MAX
+fi
+
+# CLASSPATH initially contains $PAIMON_CONF_DIR
+CLASSPATH="${PAIMON_CONF_DIR}"
+CLASSPATH=${CLASSPATH}:$JAVA_HOME/lib/tools.jar
+
+# so that filenames w/ spaces are handled correctly in loops below
+IFS=
+
+for f in $PAIMON_HOME/paimon-api-*.jar; do
+  CLASSPATH=${CLASSPATH}:$f;
+done
+
+# add libs to CLASSPATH
+for f in $PAIMON_HOME/lib/*.jar; do
+  CLASSPATH=${CLASSPATH}:$f;
+done
+
+# restore ordinary behaviour
+unset IFS
+
+# figure out which class to run
+if [ $# = 0 ] || [ $COMMAND = "help" ] || [ $COMMAND = "-help" ] || [ $COMMAND = "-h" ] ;then
+  printHelp
+  exit 0
+fi
+CLASS='org.apache.paimon.cli.ConsoleCmd'
+
+$JAVA -Dfile.encoding=UTF-8 $JAVA_HEAP_MAX $PAIMON_OPT -classpath "$CLASSPATH" $CLASS "$@" &
+
+#set up signal
+pid=$!
+trap "killJava $pid" 1 2 3 15
+#1) SIGHUP 2) SIGINT 3) SIGQUIT 15) SIGTERM
+wait $pid
