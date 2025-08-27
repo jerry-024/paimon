@@ -18,6 +18,7 @@
 
 import uuid
 from abc import ABC, abstractmethod
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -92,7 +93,7 @@ class DataWriter(ABC):
 
         current_size = self.pending_data.get_total_buffer_size()
         if current_size > self.target_file_size:
-            split_row = _find_optimal_split_point(self.pending_data, self.target_file_size)
+            split_row = self._find_optimal_split_point(self.pending_data, self.target_file_size)
             if split_row > 0:
                 data_to_write = self.pending_data.slice(0, split_row)
                 remaining_data = self.pending_data.slice(split_row)
