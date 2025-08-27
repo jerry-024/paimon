@@ -52,6 +52,12 @@ class CatalogPy4j:
 
     @staticmethod
     def create(catalog_options: dict) -> 'CatalogPy4j':
+        if not PY4J_IMPL_AVAILABLE or java_utils is None:
+            raise RuntimeError(
+                "Py4j implementation is not available. "
+                "This could be due to missing py4j dependencies or Java gateway initialization failure. "
+                "Please ensure py4j is installed and Java dependencies are properly configured."
+            )
         j_catalog_context = java_utils.to_j_catalog_context(catalog_options)
         gateway = get_gateway()
         j_catalog = gateway.jvm.CatalogFactory.createCatalog(j_catalog_context)
