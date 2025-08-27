@@ -20,3 +20,9 @@ from pypaimon.filesystem.pvfs import PaimonVirtualFileSystem
 __all__ = [
     "PaimonVirtualFileSystem",
 ]
+
+# Import compatibility patches for Python 3.6 and PyArrow 5.0.0
+try:
+    from pypaimon.common import pyarrow_compat
+except ImportError:
+    pass  # Ignore if compatibility module is not available
