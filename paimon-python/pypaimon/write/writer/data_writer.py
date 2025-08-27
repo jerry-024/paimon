@@ -15,9 +15,9 @@
 #  See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
+
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -104,7 +104,7 @@ class DataWriter(ABC):
     def _write_data_to_file(self, data: pa.RecordBatch):
         if data.num_rows == 0:
             return
-        file_name = f"data-{uuid.uuid4()}-0.{self.file_format}"
+        file_name = "data-{}-0.{}".format(uuid.uuid4(), self.file_format)
         file_path = self._generate_file_path(file_name)
         if self.file_format == CoreOptions.FILE_FORMAT_PARQUET:
             self.file_io.write_parquet(file_path, data, compression=self.compression)
@@ -113,7 +113,7 @@ class DataWriter(ABC):
         elif self.file_format == CoreOptions.FILE_FORMAT_AVRO:
             self.file_io.write_avro(file_path, data)
         else:
-            raise ValueError(f"Unsupported file format: {self.file_format}")
+            raise ValueError("Unsupported file format: {}".format(self.file_format))
 
         # min key & max key
         key_columns_batch = data.select(self.trimmed_primary_key)
