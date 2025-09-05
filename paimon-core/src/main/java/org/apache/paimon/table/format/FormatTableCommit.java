@@ -388,43 +388,4 @@ public class FormatTableCommit implements BatchTableCommit {
             // Don't fail the commit operation due to recovery issues
         }
     }
-
-    /** Enhanced commit method that supports distributed consistency if enabled. */
-    public void commitWithDistributedConsistency(
-            List<CommitMessage> commitMessages, String taskId) {
-        Options options = Options.fromMap(formatTable.options());
-        boolean useDistributedCommit = options.get(DISTRIBUTED_COMMIT_ENABLED);
-
-        if (useDistributedCommit) {
-            try {
-                FormatTableDistributedCommitter distributedCommitter =
-                        new FormatTableDistributedCommitter(formatTable);
-
-                // Prepare task commit
-                byte[] taskCommit = distributedCommitter.prepareTaskCommit(taskId, commitMessages);
-
-                // In a real distributed environment, these would be collected by a coordinator
-                List<byte[]> allTaskCommits = Collections.singletonList(taskCommit);
-
-                // Coordinator commit
-                distributedCommitter.coordinatorCommit(allTaskCommits);
-
-                LOG.info(
-                        "Distributed commit completed for format table {} task {}",
-                        formatTable.name(),
-                        taskId);
-
-            } catch (Exception e) {
-                LOG.error(
-                        "Distributed commit failed for format table {} task {}",
-                        formatTable.name(),
-                        taskId,
-                        e);
-                throw new RuntimeException("Distributed commit failed", e);
-            }
-        } else {
-            // Fall back to regular commit
-            commit(commitMessages);
-        }
-    }
 }
