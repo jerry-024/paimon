@@ -20,6 +20,8 @@ package org.apache.paimon.s3;
 
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.MagicCommitterOutputStream;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.options.Options;
 
 import org.apache.hadoop.conf.Configuration;
@@ -69,6 +71,27 @@ public class S3FileIO extends HadoopCompliantFileIO {
     @Override
     public void configure(CatalogContext context) {
         this.hadoopOptions = mirrorCertainHadoopConfig(loadHadoopConfigFromContext(context));
+    }
+
+    @Override
+    public MagicCommitterOutputStream newMagicCommitterOutputStream(
+            Path tempPath, Path finalPath, String partitionPath) throws IOException {
+
+        // Extract bucket and object key from the final path
+        String bucketName = S3MagicCommitterOutputStream.extractBucketName(finalPath.toString());
+        String objectKey = S3MagicCommitterOutputStream.extractObjectKey(finalPath.toString());
+
+        // Get the part size from configuration (default 5MB)
+        int partSize =
+                hadoopOptions.getInteger(
+                        "s3.multipart.part-size", MagicCommitterOutputStream.DEFAULT_PART_SIZE);
+
+        // Get the S3A file system
+        org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(finalPath.toUri());
+        S3AFileSystem s3aFileSystem = (S3AFileSystem) createFileSystem(hadoopPath);
+
+        return new S3MagicCommitterOutputStream(
+                s3aFileSystem, bucketName, objectKey, tempPath, finalPath, partitionPath, partSize);
     }
 
     // add additional config entries from the IO config to the Hadoop config

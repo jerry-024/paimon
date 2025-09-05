@@ -20,6 +20,8 @@ package org.apache.paimon.oss;
 
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.MagicCommitterOutputStream;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.utils.IOUtils;
 
@@ -81,6 +83,27 @@ public class OSSFileIO extends HadoopCompliantFileIO {
     @Override
     public boolean isObjectStore() {
         return true;
+    }
+
+    @Override
+    public MagicCommitterOutputStream newMagicCommitterOutputStream(
+            Path tempPath, Path finalPath, String partitionPath) throws IOException {
+
+        // Extract bucket and object key from the final path
+        String bucketName = OSSMagicCommitterOutputStream.extractBucketName(finalPath.toString());
+        String objectKey = OSSMagicCommitterOutputStream.extractObjectKey(finalPath.toString());
+
+        // Get the part size from configuration (default 5MB)
+        int partSize =
+                hadoopOptions.getInteger(
+                        "oss.multipart.part-size", MagicCommitterOutputStream.DEFAULT_PART_SIZE);
+
+        // Get the OSS file system
+        org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(finalPath.toUri());
+        AliyunOSSFileSystem ossFileSystem = createFileSystem(hadoopPath);
+
+        return new OSSMagicCommitterOutputStream(
+                ossFileSystem, bucketName, objectKey, tempPath, finalPath, partitionPath, partSize);
     }
 
     @Override

@@ -94,6 +94,24 @@ public interface FileIO extends Serializable, Closeable {
     PositionOutputStream newOutputStream(Path path, boolean overwrite) throws IOException;
 
     /**
+     * Creates a MagicCommitterOutputStream for multipart upload scenarios. This method is only
+     * supported by object store implementations (S3, OSS, etc.).
+     *
+     * @param tempPath the temporary path where data is initially written
+     * @param finalPath the final path where the object should appear after commit
+     * @param partitionPath the partition path (optional)
+     * @return a MagicCommitterOutputStream for multipart uploads
+     * @throws IOException if the stream could not be created
+     * @throws UnsupportedOperationException if the FileIO implementation doesn't support multipart
+     *     uploads
+     */
+    default MagicCommitterOutputStream newMagicCommitterOutputStream(
+            Path tempPath, Path finalPath, String partitionPath) throws IOException {
+        throw new UnsupportedOperationException(
+                "Multipart upload is not supported by this FileIO implementation");
+    }
+
+    /**
      * Return a file status object that represents the path.
      *
      * @param path The path we want information from

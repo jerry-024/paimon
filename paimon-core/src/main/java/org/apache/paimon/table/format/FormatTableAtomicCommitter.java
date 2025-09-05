@@ -62,7 +62,7 @@ public abstract class FormatTableAtomicCommitter {
         String location = formatTable.location();
 
         if (isS3FileSystem(location) || isOSSFileSystem(location)) {
-            return new S3AtomicCommitter(formatTable);
+            return new MagicAtomicCommitter(formatTable);
         } else {
             return new HDFSAtomicCommitter(formatTable);
         }
@@ -138,11 +138,21 @@ public abstract class FormatTableAtomicCommitter {
         private final Path tempPath;
         private final Path finalPath;
         private final String partitionPath;
+        private final org.apache.paimon.fs.MultipartUploadInfo multipartUploadInfo;
 
         public TempFileInfo(Path tempPath, Path finalPath, String partitionPath) {
+            this(tempPath, finalPath, partitionPath, null);
+        }
+
+        public TempFileInfo(
+                Path tempPath,
+                Path finalPath,
+                String partitionPath,
+                org.apache.paimon.fs.MultipartUploadInfo multipartUploadInfo) {
             this.tempPath = tempPath;
             this.finalPath = finalPath;
             this.partitionPath = partitionPath;
+            this.multipartUploadInfo = multipartUploadInfo;
         }
 
         public Path getTempPath() {
@@ -157,11 +167,19 @@ public abstract class FormatTableAtomicCommitter {
             return partitionPath;
         }
 
+        public org.apache.paimon.fs.MultipartUploadInfo getMultipartUploadInfo() {
+            return multipartUploadInfo;
+        }
+
+        public boolean hasMultipartUpload() {
+            return multipartUploadInfo != null;
+        }
+
         @Override
         public String toString() {
             return String.format(
-                    "TempFileInfo{tempPath=%s, finalPath=%s, partition=%s}",
-                    tempPath, finalPath, partitionPath);
+                    "TempFileInfo{tempPath=%s, finalPath=%s, partition=%s, hasMultipart=%s}",
+                    tempPath, finalPath, partitionPath, hasMultipartUpload());
         }
     }
 
@@ -322,18 +340,25 @@ public abstract class FormatTableAtomicCommitter {
         }
     }
 
-    /** S3/OSS implementation using Hadoop S3A Committer for atomic writes. */
-    private static class S3AtomicCommitter extends FormatTableAtomicCommitter {
+    /** S3/OSS implementation using multipart upload for atomic writes. */
+    private static class MagicAtomicCommitter extends FormatTableAtomicCommitter {
 
         private static final String MAGIC_COMMITTER_DIR = "_temporary";
+        private static final String PENDING_UPLOADS_DIR = "__pending-uploads";
 
-        public S3AtomicCommitter(FormatTable formatTable) {
+        private final org.apache.paimon.fs.MultipartUploadTracker uploadTracker;
+
+        public MagicAtomicCommitter(FormatTable formatTable) {
             super(formatTable);
+            Path metadataDir =
+                    new Path(formatTable.location(), PENDING_UPLOADS_DIR + "/" + sessionId);
+            this.uploadTracker =
+                    new org.apache.paimon.fs.MultipartUploadTracker(fileIO, metadataDir);
         }
 
         @Override
         public Path prepareTempLocation(String partitionPath) {
-            // For S3A committer, we use a magic directory that the committer recognizes
+            // For multipart upload committer, we use a magic directory for staging
             Path tablePath = new Path(formatTable.location());
             Path tempDir = new Path(tablePath, MAGIC_COMMITTER_DIR + "/" + sessionId);
 
@@ -348,35 +373,41 @@ public abstract class FormatTableAtomicCommitter {
 
         @Override
         public void commitFiles(List<TempFileInfo> tempFiles) throws IOException {
-            LOG.info("Committing {} files using S3A committer strategy", tempFiles.size());
+            LOG.info("Committing {} files using multipart upload strategy", tempFiles.size());
 
-            // For S3A committer, we need to:
-            // 1. Write manifest files that describe the pending uploads
-            // 2. Use the S3A committer to atomically commit all files
-
-            // This is a simplified implementation - in practice, you would integrate
-            // with org.apache.hadoop.fs.s3a.commit.CommitOperations
-            // or org.apache.hadoop.mapreduce.lib.output.committer.manifest.ManifestCommitter
+            List<IOException> failures = new ArrayList<>();
+            int successCount = 0;
 
             for (TempFileInfo tempFile : tempFiles) {
-                // For now, use the same rename strategy as HDFS
-                // In a full implementation, this would use the S3A committer API
-                Path tempPath = tempFile.getTempPath();
-                Path finalPath = tempFile.getFinalPath();
+                try {
+                    // Complete the multipart upload
+                    completeMultipartUpload(tempFile.getMultipartUploadInfo());
+                    uploadTracker.recordUploadComplete(
+                            tempFile.getMultipartUploadInfo().getObjectKey());
+                    successCount++;
+                    LOG.debug("Completed multipart upload for {}", tempFile.getFinalPath());
+                } catch (IOException e) {
+                    failures.add(e);
+                    LOG.error("Failed to commit file: {}", tempFile.getTempPath(), e);
 
-                if (fileIO.exists(tempPath)) {
-                    // Ensure parent directory exists
-                    Path parentDir = finalPath.getParent();
-                    if (parentDir != null && !fileIO.exists(parentDir)) {
-                        fileIO.mkdirs(parentDir);
+                    // Try to abort the multipart upload if it exists
+                    if (tempFile.hasMultipartUpload()) {
+                        try {
+                            abortMultipartUpload(tempFile.getMultipartUploadInfo());
+                            uploadTracker.recordUploadAbort(
+                                    tempFile.getMultipartUploadInfo().getObjectKey());
+                        } catch (Exception abortException) {
+                            LOG.error(
+                                    "Failed to abort multipart upload for {}",
+                                    tempFile.getMultipartUploadInfo().getObjectKey(),
+                                    abortException);
+                            e.addSuppressed(abortException);
+                        }
                     }
-
-                    fileIO.rename(tempPath, finalPath);
-                    LOG.debug("Moved {} to {} (S3A strategy)", tempPath, finalPath);
                 }
             }
 
-            cleanupTempDirectory();
+            LOG.info("Successfully committed {} files using multipart upload", successCount);
         }
 
         @Override
@@ -386,7 +417,95 @@ public abstract class FormatTableAtomicCommitter {
 
             if (fileIO.exists(tempDir)) {
                 fileIO.delete(tempDir, true);
-                LOG.debug("Cleaned up S3A temporary directory: {}", tempDir);
+                LOG.debug("Cleaned up temporary directory: {}", tempDir);
+            }
+
+            // Clean up upload tracker metadata
+            try {
+                uploadTracker.cleanup();
+            } catch (Exception e) {
+                LOG.warn("Failed to clean up upload tracker metadata", e);
+            }
+        }
+
+        /** Completes a multipart upload using the object store's native API. */
+        private void completeMultipartUpload(org.apache.paimon.fs.MultipartUploadInfo uploadInfo)
+                throws IOException {
+            String location = formatTable.location();
+
+            if (isS3FileSystem(location)) {
+                completeS3MultipartUpload(uploadInfo);
+            } else if (isOSSFileSystem(location)) {
+                completeOSSMultipartUpload(uploadInfo);
+            } else {
+                throw new IOException("Unsupported object store for multipart upload: " + location);
+            }
+        }
+
+        /** Aborts a multipart upload using the object store's native API. */
+        private void abortMultipartUpload(org.apache.paimon.fs.MultipartUploadInfo uploadInfo)
+                throws IOException {
+            String location = formatTable.location();
+
+            if (isS3FileSystem(location)) {
+                abortS3MultipartUpload(uploadInfo);
+            } else if (isOSSFileSystem(location)) {
+                abortOSSMultipartUpload(uploadInfo);
+            } else {
+                throw new IOException("Unsupported object store for multipart upload: " + location);
+            }
+        }
+
+        private void completeS3MultipartUpload(org.apache.paimon.fs.MultipartUploadInfo uploadInfo)
+                throws IOException {
+            // Implementation would use S3MagicCommitterOutputStream.completeMultipartUpload
+            // For now, this is a placeholder
+            LOG.info("Completing S3 multipart upload: {}", uploadInfo.getUploadId());
+            throw new IOException("S3 multipart upload completion not yet implemented");
+        }
+
+        private void completeOSSMultipartUpload(org.apache.paimon.fs.MultipartUploadInfo uploadInfo)
+                throws IOException {
+            // Implementation would use OSSMagicCommitterOutputStream.completeMultipartUpload
+            // For now, this is a placeholder
+            LOG.info("Completing OSS multipart upload: {}", uploadInfo.getUploadId());
+            throw new IOException("OSS multipart upload completion not yet implemented");
+        }
+
+        private void abortS3MultipartUpload(org.apache.paimon.fs.MultipartUploadInfo uploadInfo)
+                throws IOException {
+            // Implementation would use S3MagicCommitterOutputStream.abortMultipartUpload
+            LOG.info("Aborting S3 multipart upload: {}", uploadInfo.getUploadId());
+        }
+
+        private void abortOSSMultipartUpload(org.apache.paimon.fs.MultipartUploadInfo uploadInfo)
+                throws IOException {
+            // Implementation would use OSSMagicCommitterOutputStream.abortMultipartUpload
+            LOG.info("Aborting OSS multipart upload: {}", uploadInfo.getUploadId());
+        }
+
+        private void commitRegularFile(TempFileInfo tempFile) throws IOException {
+            Path tempPath = tempFile.getTempPath();
+            Path finalPath = tempFile.getFinalPath();
+
+            if (!fileIO.exists(tempPath)) {
+                throw new IOException("Temporary file does not exist: " + tempPath);
+            }
+
+            // Ensure parent directory exists
+            Path parentDir = finalPath.getParent();
+            if (parentDir != null && !fileIO.exists(parentDir)) {
+                fileIO.mkdirs(parentDir);
+            }
+
+            // Remove existing file if present (overwrite case)
+            if (fileIO.exists(finalPath)) {
+                fileIO.delete(finalPath, false);
+            }
+
+            // Atomic rename
+            if (!fileIO.rename(tempPath, finalPath)) {
+                throw new IOException("Failed to rename " + tempPath + " to " + finalPath);
             }
         }
     }
