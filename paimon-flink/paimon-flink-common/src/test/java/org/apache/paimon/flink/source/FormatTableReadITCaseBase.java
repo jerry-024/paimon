@@ -18,21 +18,13 @@
 
 package org.apache.paimon.flink.source;
 
-import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.flink.RESTCatalogITCaseBase;
 import org.apache.paimon.format.FileFormatFactory;
-import org.apache.paimon.format.FormatWriter;
 import org.apache.paimon.format.FormatWriterFactory;
-import org.apache.paimon.format.SupportsDirectWrite;
 import org.apache.paimon.format.parquet.ParquetFileFormatFactory;
-import org.apache.paimon.fs.FileIO;
-import org.apache.paimon.fs.Path;
-import org.apache.paimon.fs.PositionOutputStream;
-import org.apache.paimon.fs.ResolvingFileIO;
-import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.types.DataTypes;
@@ -68,46 +60,19 @@ public class FormatTableReadITCaseBase extends RESTCatalogITCaseBase {
         datas[0] = GenericRow.of(1, 1, 1);
         datas[1] = GenericRow.of(2, 2, 2);
         String tableName = "format_table_test";
+        Identifier identifier = Identifier.create("default", tableName);
         sql(
                 "CREATE TABLE %s (a INT, b INT, c INT) WITH ('file.format'='parquet', 'type'='format-table')",
                 tableName);
-        write(
-                factory,
-                new Path(dataPath, String.format("default.db/%s/data-1.parquet", tableName)),
-                datas);
         RESTToken expiredDataToken =
                 new RESTToken(
                         ImmutableMap.of(
                                 "akId", "akId-expire", "akSecret", UUID.randomUUID().toString()),
                         System.currentTimeMillis() + 1000_000);
-        Identifier identifier = Identifier.create("default", tableName);
         restCatalogServer.setDataToken(identifier, expiredDataToken);
+        sql("INSERT INTO %s VALUES (1, 1, 1), (2, 2, 2)", tableName);
         assertThat(sql("SELECT a FROM %s", tableName))
                 .containsExactlyInAnyOrder(Row.of(1), Row.of(2));
         sql("Drop TABLE %s", tableName);
-    }
-
-    protected void write(FormatWriterFactory factory, Path file, InternalRow... rows)
-            throws IOException {
-        FileIO fileIO = new ResolvingFileIO();
-        Options catalogOptions = new Options();
-        catalogOptions.set(CatalogOptions.WAREHOUSE, dataPath);
-        CatalogContext catalogContext = CatalogContext.create(catalogOptions);
-        fileIO.configure(catalogContext);
-        FormatWriter writer;
-        PositionOutputStream out = null;
-        if (factory instanceof SupportsDirectWrite) {
-            writer = ((SupportsDirectWrite) factory).create(fileIO, file, "zstd");
-        } else {
-            out = fileIO.newOutputStream(file, true);
-            writer = factory.create(out, "zstd");
-        }
-        for (InternalRow row : rows) {
-            writer.addElement(row);
-        }
-        writer.close();
-        if (out != null) {
-            out.close();
-        }
     }
 }
