@@ -18,14 +18,15 @@
 
 package org.apache.paimon.spark.write
 
-import org.apache.paimon.table.FileStoreTable
+import org.apache.paimon.table.{FileStoreTable, Table}
+import org.apache.paimon.types.RowType
 
 import org.apache.spark.sql.connector.write.{SupportsDynamicOverwrite, SupportsOverwrite, WriteBuilder}
 import org.apache.spark.sql.sources.{And, Filter}
 import org.apache.spark.sql.types.StructType
 
-class PaimonV2WriteBuilder(table: FileStoreTable, writeSchema: StructType)
-  extends BaseWriteBuilder(table)
+class PaimonV2WriteBuilder(table: Table, partitionType: RowType, writeSchema: StructType)
+  extends BaseWriteBuilder(partitionType)
   with SupportsOverwrite
   with SupportsDynamicOverwrite {
 
@@ -51,8 +52,8 @@ class PaimonV2WriteBuilder(table: FileStoreTable, writeSchema: StructType)
     if (isTruncate(conjunctiveFilters.get)) {
       overwritePartitions = Option.apply(Map.empty[String, String])
     } else {
-      overwritePartitions = Option.apply(
-        convertPartitionFilterToMap(conjunctiveFilters.get, table.schema.logicalPartitionType()))
+      overwritePartitions =
+        Option.apply(convertPartitionFilterToMap(conjunctiveFilters.get, partitionType))
     }
 
     this

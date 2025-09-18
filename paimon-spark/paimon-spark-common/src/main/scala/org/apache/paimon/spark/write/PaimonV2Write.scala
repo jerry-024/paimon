@@ -19,8 +19,10 @@
 package org.apache.paimon.spark.write
 
 import org.apache.paimon.CoreOptions
+import org.apache.paimon.fs.CommittablePositionOutputStream
 import org.apache.paimon.spark.{SparkInternalRowWrapper, SparkUtils}
-import org.apache.paimon.table.FileStoreTable
+import org.apache.paimon.table.{FileStoreTable, FormatTable, Table}
+import org.apache.paimon.table.format.FormatBatchWriteBuilder
 import org.apache.paimon.table.sink.{BatchTableWrite, BatchWriteBuilder, CommitMessage, CommitMessageSerializer}
 
 import org.apache.spark.internal.Logging
@@ -36,7 +38,7 @@ import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
 
 class PaimonV2Write(
-    storeTable: FileStoreTable,
+    storeTable: Table,
     overwriteDynamic: Boolean,
     overwritePartitions: Option[Map[String, String]],
     writeSchema: StructType
@@ -48,9 +50,14 @@ class PaimonV2Write(
     !(overwriteDynamic && overwritePartitions.exists(_.nonEmpty)),
     "Cannot overwrite dynamically and by filter both")
 
-  private val table =
-    storeTable.copy(
-      Map(CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key -> overwriteDynamic.toString).asJava)
+  private val table = {
+    storeTable match {
+      case fileStoreTable: FileStoreTable =>
+        fileStoreTable.copy(
+          Map(CoreOptions.DYNAMIC_PARTITION_OVERWRITE.key -> overwriteDynamic.toString).asJava)
+      case _ => storeTable
+    }
+  }
 
   private val writeRequirement = PaimonWriteRequirement(table)
 
@@ -66,7 +73,14 @@ class PaimonV2Write(
     ordering
   }
 
-  override def toBatch: BatchWrite = PaimonBatchWrite(table, writeSchema, overwritePartitions)
+  override def toBatch: BatchWrite = {
+    table match {
+      case fileStoreTable: FileStoreTable =>
+        PaimonBatchWrite(fileStoreTable, writeSchema, overwritePartitions)
+      case formatTable: FormatTable =>
+        FormatTableBatchWrite(formatTable, writeSchema, overwritePartitions)
+    }
+  }
 
   override def toString: String = {
     val overwriteDynamicStr = if (overwriteDynamic) {
@@ -209,5 +223,130 @@ object TaskCommit {
       .getOrElse(Seq.empty)
 
     new TaskCommit(serializedBytes)
+  }
+}
+
+private case class FormatTableBatchWrite(
+    table: FormatTable,
+    writeSchema: StructType,
+    overwritePartitions: Option[Map[String, String]])
+  extends BatchWrite
+  with Logging {
+
+  private val batchWriteBuilder = {
+    val builder = table.newBatchWriteBuilder().asInstanceOf[FormatBatchWriteBuilder]
+    overwritePartitions.foreach(partitions => builder.withOverwrite(partitions.asJava))
+    builder
+  }
+
+  override def createBatchWriterFactory(info: PhysicalWriteInfo): DataWriterFactory =
+    FormatTableWriterFactory(table, writeSchema, batchWriteBuilder)
+
+  override def useCommitCoordinator(): Boolean = false
+
+  override def commit(messages: Array[WriterCommitMessage]): Unit = {
+    logInfo(s"Committing to FormatTable ${table.name()}")
+
+    // For FormatTable, we don't use the batch commit mechanism from the builder
+    // Instead, we directly execute the committers
+    val committers = messages
+      .collect {
+        case taskCommit: FormatTableTaskCommit => taskCommit.committers()
+        case other =>
+          throw new IllegalArgumentException(s"${other.getClass.getName} is not supported")
+      }
+      .flatten
+      .toSeq
+
+    try {
+      val start = System.currentTimeMillis()
+      committers.foreach(_.commit())
+      logInfo(s"Committed in ${System.currentTimeMillis() - start} ms")
+    } catch {
+      case e: Exception =>
+        logError("Failed to commit FormatTable writes", e)
+        throw e
+    }
+  }
+
+  override def abort(messages: Array[WriterCommitMessage]): Unit = {
+    logInfo(s"Aborting write to FormatTable ${table.name()}")
+    // FormatTable doesn't have specific cleanup requirements for now
+  }
+}
+
+private case class FormatTableWriterFactory(
+    table: FormatTable,
+    writeSchema: StructType,
+    batchWriteBuilder: FormatBatchWriteBuilder)
+  extends DataWriterFactory {
+
+  override def createWriter(partitionId: Int, taskId: Long): DataWriter[InternalRow] = {
+    val formatTableWrite =
+      batchWriteBuilder
+        .newWrite()
+        .asInstanceOf[BatchTableWrite[CommittablePositionOutputStream.Committer]]
+    new FormatTableDataWriter(table, formatTableWrite, writeSchema)
+  }
+}
+
+private class FormatTableDataWriter(
+    table: FormatTable,
+    formatTableWrite: BatchTableWrite[CommittablePositionOutputStream.Committer],
+    writeSchema: StructType)
+  extends DataWriter[InternalRow]
+  with Logging {
+
+  private val rowConverter: InternalRow => org.apache.paimon.data.InternalRow = {
+    val numFields = writeSchema.fields.length
+    record => {
+      new SparkInternalRowWrapper(-1, writeSchema, numFields).replace(record)
+    }
+  }
+
+  override def write(record: InternalRow): Unit = {
+    val paimonRow = rowConverter.apply(record)
+    formatTableWrite.write(paimonRow)
+  }
+
+  override def commit(): WriterCommitMessage = {
+    try {
+      val committers = formatTableWrite.prepareCommit().asScala.toSeq
+      // Execute committers immediately to avoid serialization issues
+      committers.foreach(_.commit())
+      // Return empty commit message since we already committed
+      FormatTableTaskCommit(Seq.empty)
+    } finally {
+      close()
+    }
+  }
+
+  override def abort(): Unit = {
+    logInfo("Aborting FormatTable data writer")
+    close()
+  }
+
+  override def close(): Unit = {
+    try {
+      formatTableWrite.close()
+    } catch {
+      case e: Exception =>
+        logError("Error closing FormatTableDataWriter", e)
+        throw new RuntimeException(e)
+    }
+  }
+}
+
+/** Commit message container for FormatTable writes, holding committers that need to be executed. */
+class FormatTableTaskCommit private (
+    private val _committers: Seq[CommittablePositionOutputStream.Committer])
+  extends WriterCommitMessage {
+
+  def committers(): Seq[CommittablePositionOutputStream.Committer] = _committers
+}
+
+object FormatTableTaskCommit {
+  def apply(committers: Seq[CommittablePositionOutputStream.Committer]): FormatTableTaskCommit = {
+    new FormatTableTaskCommit(committers)
   }
 }

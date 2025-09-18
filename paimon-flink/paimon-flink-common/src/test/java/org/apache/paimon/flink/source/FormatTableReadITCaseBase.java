@@ -82,8 +82,8 @@ public class FormatTableReadITCaseBase extends RESTCatalogITCaseBase {
                         System.currentTimeMillis() + 1000_000);
         Identifier identifier = Identifier.create("default", tableName);
         restCatalogServer.setDataToken(identifier, expiredDataToken);
-        assertThat(sql("SELECT a FROM %s", tableName))
-                .containsExactlyInAnyOrder(Row.of(1), Row.of(2));
+        assertThat(sql("SELECT a FROM %s where b = 1", tableName))
+                .containsExactlyInAnyOrder(Row.of(1));
         sql("Drop TABLE %s", tableName);
     }
 

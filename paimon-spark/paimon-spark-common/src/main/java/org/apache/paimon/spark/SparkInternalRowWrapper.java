@@ -79,6 +79,14 @@ public class SparkInternalRowWrapper implements InternalRow, Serializable {
         return length;
     }
 
+    private void checkInitialized() {
+        if (internalRow == null) {
+            throw new IllegalStateException(
+                    "SparkInternalRowWrapper not properly initialized - internalRow is null. "
+                            + "Make sure to call replace() method before using this wrapper.");
+        }
+    }
+
     @Override
     public RowKind getRowKind() {
         if (rowKindIdx != -1) {
@@ -95,11 +103,13 @@ public class SparkInternalRowWrapper implements InternalRow, Serializable {
 
     @Override
     public boolean isNullAt(int pos) {
+        checkInitialized();
         return internalRow.isNullAt(pos);
     }
 
     @Override
     public boolean getBoolean(int pos) {
+        checkInitialized();
         return internalRow.getBoolean(pos);
     }
 

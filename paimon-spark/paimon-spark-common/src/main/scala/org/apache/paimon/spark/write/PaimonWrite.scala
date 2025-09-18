@@ -21,19 +21,24 @@ package org.apache.paimon.spark.write
 import org.apache.paimon.options.Options
 import org.apache.paimon.spark.SaveMode
 import org.apache.paimon.spark.commands.WriteIntoPaimonTable
-import org.apache.paimon.table.FileStoreTable
+import org.apache.paimon.table.{FileStoreTable, Table}
 
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.connector.write.V1Write
 import org.apache.spark.sql.sources.InsertableRelation
 
 /** Spark [[V1Write]], it is required to use v1 write for grouping by bucket. */
-class PaimonWrite(val table: FileStoreTable, saveMode: SaveMode, options: Options) extends V1Write {
+class PaimonWrite(val table: Table, saveMode: SaveMode, options: Options) extends V1Write {
 
   override def toInsertableRelation: InsertableRelation = {
     (data: DataFrame, overwrite: Boolean) =>
       {
-        WriteIntoPaimonTable(table, saveMode, data, options).run(data.sparkSession)
+        table match {
+          case fileStoreTable: FileStoreTable =>
+            WriteIntoPaimonTable(fileStoreTable, saveMode, data, options).run(data.sparkSession)
+          case _ =>
+            throw new RuntimeException("Only FileStoreTable and FormatTable can be written.")
+        }
       }
   }
 

@@ -20,13 +20,14 @@ package org.apache.paimon.spark.write
 
 import org.apache.paimon.options.Options
 import org.apache.paimon.spark.{InsertInto, Overwrite, SaveMode}
-import org.apache.paimon.table.FileStoreTable
+import org.apache.paimon.table.{FileStoreTable, Table}
+import org.apache.paimon.types.RowType
 
 import org.apache.spark.sql.connector.write.{SupportsOverwrite, WriteBuilder}
 import org.apache.spark.sql.sources._
 
-class PaimonWriteBuilder(table: FileStoreTable, options: Options)
-  extends BaseWriteBuilder(table)
+class PaimonWriteBuilder(table: Table, partitionType: RowType, options: Options)
+  extends BaseWriteBuilder(partitionType)
   with SupportsOverwrite {
 
   private var saveMode: SaveMode = InsertInto

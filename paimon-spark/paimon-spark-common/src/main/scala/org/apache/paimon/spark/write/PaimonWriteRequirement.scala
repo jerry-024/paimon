@@ -20,8 +20,8 @@ package org.apache.paimon.spark.write
 
 import org.apache.paimon.CoreOptions.PartitionSinkStrategy
 import org.apache.paimon.spark.commands.BucketExpression.quote
+import org.apache.paimon.table.{FileStoreTable, Table}
 import org.apache.paimon.table.BucketMode._
-import org.apache.paimon.table.FileStoreTable
 
 import org.apache.spark.sql.connector.distributions.{ClusteredDistribution, Distribution, Distributions}
 import org.apache.spark.sql.connector.expressions.{Expression, Expressions, SortOrder}
@@ -36,6 +36,13 @@ object PaimonWriteRequirement {
   private val EMPTY_ORDERING: Array[SortOrder] = Array.empty
   private val EMPTY: PaimonWriteRequirement =
     PaimonWriteRequirement(Distributions.unspecified(), EMPTY_ORDERING)
+
+  def apply(table: Table): PaimonWriteRequirement = {
+    table match {
+      case fileStoreTable: FileStoreTable => apply(fileStoreTable)
+      case _ => EMPTY
+    }
+  }
 
   def apply(table: FileStoreTable): PaimonWriteRequirement = {
     val bucketSpec = table.bucketSpec()

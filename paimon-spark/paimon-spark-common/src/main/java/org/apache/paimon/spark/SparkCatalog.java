@@ -639,13 +639,16 @@ public class SparkCatalog extends SparkBaseCatalog
             Identifier ident, Map<String, String> extraOptions) throws NoSuchTableException {
         try {
             org.apache.paimon.table.Table paimonTable = catalog.getTable(toIdentifier(ident));
-            if (paimonTable instanceof FormatTable) {
-                return convertToFileTable(ident, (FormatTable) paimonTable);
-            } else {
-                return new SparkTable(
-                        copyWithSQLConf(
-                                paimonTable, catalogName, toIdentifier(ident), extraOptions));
-            }
+            //            if (paimonTable instanceof FormatTable) {
+            //                return convertToFileTable(ident, (FormatTable) paimonTable);
+            //            } else {
+            //                return new SparkTable(
+            //                        copyWithSQLConf(
+            //                                paimonTable, catalogName, toIdentifier(ident),
+            // extraOptions));
+            //            }
+            return new SparkTable(
+                    copyWithSQLConf(paimonTable, catalogName, toIdentifier(ident), extraOptions));
         } catch (Catalog.TableNotExistException e) {
             throw new NoSuchTableException(ident);
         }

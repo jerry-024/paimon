@@ -25,7 +25,7 @@ import org.apache.paimon.spark.catalog.functions.BucketFunction
 import org.apache.paimon.spark.schema.PaimonMetadataColumn
 import org.apache.paimon.spark.util.OptionUtils
 import org.apache.paimon.spark.write.{PaimonV2WriteBuilder, PaimonWriteBuilder}
-import org.apache.paimon.table.{DataTable, FileStoreTable, InnerTable, KnownSplitsTable, Table}
+import org.apache.paimon.table.{DataTable, FileStoreTable, FormatTable, InnerTable, KnownSplitsTable, Table}
 import org.apache.paimon.table.BucketMode.{BUCKET_UNAWARE, HASH_FIXED, POSTPONE_MODE}
 import org.apache.paimon.utils.StringUtils
 
@@ -106,8 +106,7 @@ case class SparkTable(table: Table)
       TableCapability.OVERWRITE_BY_FILTER,
       TableCapability.MICRO_BATCH_READ
     )
-
-    if (useV2Write) {
+    if (table.isInstanceOf[FormatTable] || useV2Write) {
       capabilities.add(TableCapability.BATCH_WRITE)
       capabilities.add(TableCapability.OVERWRITE_DYNAMIC)
     } else {
@@ -140,10 +139,13 @@ case class SparkTable(table: Table)
     table match {
       case t: KnownSplitsTable =>
         new PaimonSplitScanBuilder(t)
-      case _: InnerTable =>
-        new PaimonScanBuilder(table.copy(options.asCaseSensitiveMap).asInstanceOf[InnerTable])
+      case t: InnerTable =>
+        new PaimonScanBuilder(t.copy(options.asCaseSensitiveMap).asInstanceOf[InnerTable])
+      case t: FormatTable =>
+        new PaimonFormatTableScanBuilder(
+          t.copy(options.asCaseSensitiveMap).asInstanceOf[FormatTable])
       case _ =>
-        throw new RuntimeException("Only InnerTable can be scanned.")
+        throw new RuntimeException("Only InnerTable and FormatTable can be scanned.")
     }
   }
 
@@ -152,12 +154,21 @@ case class SparkTable(table: Table)
       case fileStoreTable: FileStoreTable =>
         val options = Options.fromMap(info.options)
         if (useV2Write) {
-          new PaimonV2WriteBuilder(fileStoreTable, info.schema())
+          new PaimonV2WriteBuilder(
+            fileStoreTable,
+            fileStoreTable.schema().logicalPartitionType(),
+            info.schema())
         } else {
-          new PaimonWriteBuilder(fileStoreTable, options)
+          new PaimonWriteBuilder(
+            fileStoreTable,
+            fileStoreTable.schema().logicalPartitionType(),
+            options)
         }
+      case formatTable: FormatTable =>
+        val options = Options.fromMap(info.options)
+        new PaimonV2WriteBuilder(formatTable, formatTable.partitionType(), info.schema())
       case _ =>
-        throw new RuntimeException("Only FileStoreTable can be written.")
+        throw new RuntimeException("Only FileStoreTable and FormatTable can be written.")
     }
   }
 

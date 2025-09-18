@@ -20,35 +20,30 @@ package org.apache.paimon.spark
 
 import org.apache.paimon.CoreOptions
 import org.apache.paimon.predicate.Predicate
-import org.apache.paimon.table.{InnerTable, KnownSplitsTable, Table}
-import org.apache.paimon.table.source.{DataSplit, Split}
+import org.apache.paimon.table.{FormatTable, Table}
 
 import org.apache.spark.sql.connector.metric.{CustomMetric, CustomTaskMetric}
 import org.apache.spark.sql.connector.read.{Batch, Scan}
 import org.apache.spark.sql.types.StructType
 
-class PaimonSplitScanBuilder(table: KnownSplitsTable) extends PaimonScanBuilder(table) {
+import scala.jdk.CollectionConverters.asScalaBufferConverter
+
+/** ScanBuilder for FormatTable that supports basic scan operations. */
+class PaimonFormatTableScanBuilder(table: FormatTable) extends PaimonScanBuilder(table) {
   override def build(): Scan = {
-    PaimonSplitScan(table, table.splits(), requiredSchema, pushedPaimonPredicates)
+    PaimonFormatTableScan(table, requiredSchema, pushedPaimonPredicates)
   }
 }
 
-/** For internal use only. */
-case class PaimonSplitScan(
-    table: Table,
-    dataSplits: Array[DataSplit],
-    requiredSchema: StructType,
-    filters: Seq[Predicate])
+case class PaimonFormatTableScan(table: Table, requiredSchema: StructType, filters: Seq[Predicate])
   extends ColumnPruningAndPushDown
   with ScanHelper {
 
   override val coreOptions: CoreOptions = CoreOptions.fromMap(table.options())
+  val formatDataSplits = readBuilder.newScan().plan().splits().asScala.toArray
 
   override def toBatch: Batch = {
-    PaimonBatch(
-      getInputPartitions(dataSplits.asInstanceOf[Array[Split]]),
-      readBuilder,
-      metadataColumns)
+    PaimonBatch(getInputPartitions(formatDataSplits), readBuilder, metadataColumns)
   }
 
   override def supportedCustomMetrics: Array[CustomMetric] = {
@@ -61,7 +56,7 @@ case class PaimonSplitScan(
   }
 
   override def reportDriverMetrics(): Array[CustomTaskMetric] = {
-    val filesCount = dataSplits.map(_.dataFiles().size).sum
+    val filesCount = formatDataSplits.length
     Array(
       PaimonResultedTableFilesTaskMetric(filesCount)
     )
