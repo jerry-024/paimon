@@ -40,7 +40,7 @@ case class PaimonFormatTableScan(table: Table, requiredSchema: StructType, filte
   with ScanHelper {
 
   override val coreOptions: CoreOptions = CoreOptions.fromMap(table.options())
-  val formatDataSplits = readBuilder.newScan().plan().splits().asScala.toArray
+  private val formatDataSplits = readBuilder.newScan().plan().splits().asScala.toArray
 
   override def toBatch: Batch = {
     PaimonBatch(getInputPartitions(formatDataSplits), readBuilder, metadataColumns)
@@ -68,6 +68,6 @@ case class PaimonFormatTableScan(table: Table, requiredSchema: StructType, filte
     } else {
       ""
     }
-    s"PaimonSplitScan: [${table.name}]" + pushedFiltersStr
+    s"PaimonFormatTableScan: [${table.name}]" + pushedFiltersStr
   }
 }

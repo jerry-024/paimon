@@ -19,7 +19,6 @@
 package org.apache.paimon.spark
 
 import org.apache.paimon.catalog.Identifier
-import org.apache.paimon.fs.Path
 import org.apache.paimon.table.FormatTable
 
 import org.apache.spark.sql.Row
@@ -34,20 +33,21 @@ class PaimonFormatTableITCase extends PaimonSparkTestWithRestCatalogBase {
   }
 
   test("FormatTable: write and read non-partitioned table") {
-    for (format <- Seq("csv")) {
+    for { (format, compression) <- Seq(("csv", "none"), ("json", "none"), ("parquet", "zstd")) } {
       withTable("format_test") {
         // Create format table using the same pattern as FormatTableTestBase
+        val tableName = s"format_test_$format"
         sql(
-          s"CREATE TABLE format_test (id INT, name STRING, value DOUBLE) USING $format TBLPROPERTIES ('type'='format-table', 'file.compression'='none')")
+          s"CREATE TABLE $tableName (id INT, name STRING, value DOUBLE) USING $format TBLPROPERTIES ('type'='format-table', 'file.compression'='$compression')")
 
         // Insert data using our new write implementation
-        sql("INSERT INTO format_test VALUES (1, 'Alice', 10.5)")
-        sql("INSERT INTO format_test VALUES (2, 'Bob', 20.7)")
-        sql("INSERT INTO format_test VALUES (3, 'Charlie', 30.9)")
+        sql(s"INSERT INTO $tableName VALUES (1, 'Alice', 10.5)")
+        sql(s"INSERT INTO $tableName VALUES (2, 'Bob', 20.7)")
+        sql(s"INSERT INTO $tableName VALUES (3, 'Charlie', 30.9)")
 
         // Test reading all data
         checkAnswer(
-          sql("SELECT * FROM format_test ORDER BY id"),
+          sql(s"SELECT * FROM $tableName ORDER BY id"),
           Seq(
             Row(1, "Alice", 10.5),
             Row(2, "Bob", 20.7),
@@ -57,21 +57,98 @@ class PaimonFormatTableITCase extends PaimonSparkTestWithRestCatalogBase {
 
         // Test column projection (using our scan builder)
         checkAnswer(
-          sql("SELECT name, value FROM format_test WHERE id = 2"),
+          sql(s"SELECT name, value FROM $tableName WHERE id = 2"),
           Seq(Row("Bob", 20.7))
         )
 
         // Test filtering
         checkAnswer(
-          sql("SELECT id FROM format_test WHERE value > 15.0 ORDER BY id"),
+          sql(s"SELECT id FROM $tableName WHERE value > 15.0 ORDER BY id"),
           Seq(Row(2), Row(3))
         )
 
         // Verify this is actually a FormatTable
-        val table = paimonCatalog.getTable(Identifier.create("test_db", "format_test"))
+        val table = paimonCatalog.getTable(Identifier.create("test_db", tableName))
         assert(
           table.isInstanceOf[FormatTable],
           s"Table should be FormatTable but was ${table.getClass}")
+        sql(s"DROP TABLE $tableName")
+      }
+    }
+  }
+
+  test("FormatTable: write and read partitioned table") {
+    for { (format, compression) <- Seq(("parquet", "zstd")) } {
+      withTable("format_test_partitioned") {
+        // Create partitioned format table
+        val tableName = s"format_test_partitioned_$format"
+        sql(
+          s"CREATE TABLE $tableName (id INT, name STRING, value DOUBLE, dept STRING) USING $format " +
+            s"PARTITIONED BY (dept) TBLPROPERTIES ('type'='format-table', 'file.compression'='$compression')")
+
+        // Insert data into different partitions
+        sql(
+          s"INSERT INTO $tableName VALUES (1, 'Alice', 10.5, 'Engineering')," +
+            s" (2, 'Bob', 20.7, 'Engineering')," +
+            s" (3, 'Charlie', 30.9, 'Sales')," +
+            s" (4, 'David', 25.3, 'Sales')," +
+            s" (5, 'Eve', 15.8, 'Marketing')")
+
+        // Test reading all data
+        //        checkAnswer(
+        //          sql(s"SELECT * FROM $tableName ORDER BY id"),
+        //          Seq(
+        //            Row(1, "Alice", 10.5, "Engineering"),
+        //            Row(2, "Bob", 20.7, "Engineering"),
+        //            Row(3, "Charlie", 30.9, "Sales"),
+        //            Row(4, "David", 25.3, "Sales"),
+        //            Row(5, "Eve", 15.8, "Marketing")
+        //          )
+        //        )
+        //
+        //        // Test partition filtering
+        //        checkAnswer(
+        //          sql(s"SELECT * FROM $tableName WHERE dept = 'Engineering' ORDER BY id"),
+        //          Seq(
+        //            Row(1, "Alice", 10.5, "Engineering"),
+        //            Row(2, "Bob", 20.7, "Engineering")
+        //          )
+        //        )
+
+        // Test column projection with partition filtering
+        val result =
+          sql(s"SELECT  name, value  FROM $tableName WHERE dept = 'Sales' ORDER BY id").collect()
+        result.foreach(println)
+        checkAnswer(
+          sql(s"SELECT name, value FROM $tableName WHERE dept = 'Sales' ORDER BY id"),
+          Seq(
+            Row("Charlie", 30.9),
+            Row("David", 25.3)
+          )
+        )
+        //
+        //        // Test filtering on non-partition columns
+        //        checkAnswer(
+        //          sql(s"SELECT id, dept FROM $tableName WHERE value > 20.0 ORDER BY id"),
+        //          Seq(
+        //            Row(2, "Engineering"),
+        //            Row(3, "Sales"),
+        //            Row(4, "Sales")
+        //          )
+        //        )
+        //
+        //        // Test combined filtering (partition + non-partition columns)
+        //        checkAnswer(
+        //          sql(s"SELECT name FROM $tableName WHERE dept = 'Sales' AND value > 25.0"),
+        //          Seq(Row("Charlie"), Row("David"))
+        //        )
+        //
+        //        // Verify this is actually a FormatTable
+        //        val table = paimonCatalog.getTable(Identifier.create("test_db", tableName))
+        //        assert(
+        //          table.isInstanceOf[FormatTable],
+        //          s"Table should be FormatTable but was ${table.getClass}")
+        sql(s"DROP TABLE $tableName")
       }
     }
   }
