@@ -1969,6 +1969,12 @@ public class CoreOptions implements Serializable {
                     .defaultValue(1024)
                     .withDescription("Threshold for merging records to binary buffer in lookup.");
 
+    public static final ConfigOption<FormatTableImplementation> FORMAT_TABLE_IMPLEMENTATION =
+            key("format-table.implementation")
+                    .enumType(FormatTableImplementation.class)
+                    .defaultValue(FormatTableImplementation.ENGINE)
+                    .withDescription("Format table uses paimon or engine.");
+
     private final Options options;
 
     public CoreOptions(Map<String, String> options) {
@@ -3020,6 +3026,10 @@ public class CoreOptions implements Serializable {
         return options.get(LOOKUP_MERGE_RECORDS_THRESHOLD);
     }
 
+    public boolean formatTableImplementationIsPaimon() {
+        return options.get(FORMAT_TABLE_IMPLEMENTATION) == FormatTableImplementation.PAIMON;
+    }
+
     /** Specifies the merge engine for table with primary key. */
     public enum MergeEngine implements DescribedEnum {
         DEDUPLICATE("deduplicate", "De-duplicate and keep the last row."),
@@ -3808,5 +3818,30 @@ public class CoreOptions implements Serializable {
         NONE,
         HASH
         // TODO : Supports range-partition strategy.
+    }
+
+    /** Specifies the implementation of format table. */
+    public enum FormatTableImplementation implements DescribedEnum {
+        PAIMON("paimon", "Paimon format table implementation."),
+        ENGINE("engine", "Engine format table implementation.");
+
+        private final String value;
+
+        private final String description;
+
+        FormatTableImplementation(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
     }
 }

@@ -67,6 +67,7 @@ import org.apache.spark.sql.connector.expressions.FieldReference;
 import org.apache.spark.sql.connector.expressions.IdentityTransform;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
+import org.apache.spark.sql.execution.PaimonFormatTable;
 import org.apache.spark.sql.execution.PartitionedCSVTable;
 import org.apache.spark.sql.execution.PartitionedJsonTable;
 import org.apache.spark.sql.execution.PartitionedOrcTable;
@@ -640,7 +641,7 @@ public class SparkCatalog extends SparkBaseCatalog
         try {
             org.apache.paimon.table.Table paimonTable = catalog.getTable(toIdentifier(ident));
             if (paimonTable instanceof FormatTable) {
-                return convertToFileTable(ident, (FormatTable) paimonTable);
+                return toSparkFormatTable(ident, (FormatTable) paimonTable);
             } else {
                 return new SparkTable(
                         copyWithSQLConf(
@@ -651,7 +652,7 @@ public class SparkCatalog extends SparkBaseCatalog
         }
     }
 
-    private static FileTable convertToFileTable(Identifier ident, FormatTable formatTable) {
+    private static FileTable toSparkFormatTable(Identifier ident, FormatTable formatTable) {
         SparkSession spark = PaimonSparkSession$.MODULE$.active();
         StructType schema = SparkTypeUtils.fromPaimonRowType(formatTable.rowType());
         StructType partitionSchema =
@@ -659,7 +660,31 @@ public class SparkCatalog extends SparkBaseCatalog
                         TypeUtils.project(formatTable.rowType(), formatTable.partitionKeys()));
         List<String> pathList = new ArrayList<>();
         pathList.add(formatTable.location());
+        Map<String, String> optionsMap = formatTable.options();
+        CoreOptions coreOptions = new CoreOptions(optionsMap);
+        if (coreOptions.formatTableImplementationIsPaimon()) {
+            return new PaimonFormatTable(
+                    spark,
+                    new CaseInsensitiveStringMap(optionsMap),
+                    scala.collection.JavaConverters.asScalaBuffer(pathList).toSeq(),
+                    scala.Option.apply(schema),
+                    partitionSchema,
+                    formatTable,
+                    ident.name());
+        }
         Options options = Options.fromMap(formatTable.options());
+        return convertToFileTable(
+                formatTable, ident, pathList, options, spark, schema, partitionSchema);
+    }
+
+    private static FileTable convertToFileTable(
+            FormatTable formatTable,
+            Identifier ident,
+            List<String> pathList,
+            Options options,
+            SparkSession spark,
+            StructType schema,
+            StructType partitionSchema) {
         CaseInsensitiveStringMap dsOptions = new CaseInsensitiveStringMap(options.toMap());
         if (formatTable.format() == FormatTable.Format.CSV) {
             options.set("sep", options.get(CsvOptions.FIELD_DELIMITER));
