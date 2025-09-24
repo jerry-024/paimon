@@ -42,11 +42,9 @@ class PaimonFormatTableReadITCase extends PaimonSparkTestWithRestCatalogBase {
           s"file.compression'='none', 'seq'='|', 'lineSep'='\n', " +
           s"'${CoreOptions.FORMAT_TABLE_IMPLEMENTATION
               .key()}'='${CoreOptions.FormatTableImplementation.PAIMON.toString}')")
-      val table =
-        paimonCatalog.getTable(Identifier.create("test_db", tableName)).asInstanceOf[FormatTable]
-      val csvFile =
-        new Path(table.location(), "part-00000-0a28422e-68ba-4713-8870-2fde2d36ed06-c001.csv")
-      table.fileIO().writeFile(csvFile, "1|2\n3|4", false)
+      val table = paimonCatalog.getTable(Identifier.create("test_db", tableName)).asInstanceOf[FormatTable]
+      table.fileIO().mkdirs(new Path(table.location()))
+      sql(s"INSERT INTO $tableName VALUES (1, 2), (3, 4)")
       checkAnswer(sql(s"SELECT * FROM $tableName"), Seq(Row(1, 2), Row(3, 4)))
     }
   }
