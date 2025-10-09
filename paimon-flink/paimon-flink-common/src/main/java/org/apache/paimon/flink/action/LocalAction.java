@@ -16,29 +16,14 @@
  * limitations under the License.
  */
 
-package org.apache.paimon.spark.benchmark
+package org.apache.paimon.flink.action;
 
-import org.apache.spark.sql.paimon.PaimonBenchmark
+import java.io.Serializable;
 
-object BucketFunctionBenchmark extends PaimonSqlBasedBenchmark {
-
-  private val N = 20L * 1000 * 1000
-
-  override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
-    val benchmark = PaimonBenchmark(s"Bucket function", N, output = output)
-
-    benchmark.addCase("Single int column", 3) {
-      _ => spark.range(N).selectExpr("fixed_bucket(10, id)").noop()
-    }
-
-    benchmark.addCase("Single string column", 3) {
-      _ => spark.range(N).selectExpr("fixed_bucket(10, uuid())").noop()
-    }
-
-    benchmark.addCase("Multiple columns", 3) {
-      _ => spark.range(N).selectExpr("fixed_bucket(10, id, uuid(), uuid())").noop()
-    }
-
-    benchmark.run()
-  }
+/**
+ * Interface for {@link Action}s that are recommended to be executed locally without starting a
+ * Flink job.
+ */
+public interface LocalAction extends Action, Serializable {
+    void executeLocally() throws Exception;
 }

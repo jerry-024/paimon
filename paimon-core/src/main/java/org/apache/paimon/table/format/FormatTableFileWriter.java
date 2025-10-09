@@ -32,23 +32,26 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.apache.paimon.format.FileFormat.fileFormat;
 
-/** File write for format table. */
-public class FormatTableFileWrite {
+/** File writer for format table. */
+public class FormatTableFileWriter {
 
     private final FileIO fileIO;
     private RowType rowType;
+    private RowType partitionType;
     private final FileFormat fileFormat;
     private final FileStorePathFactory pathFactory;
     protected final Map<BinaryRow, FormatTableRecordWriter> writers;
     protected final CoreOptions options;
 
-    public FormatTableFileWrite(
+    public FormatTableFileWriter(
             FileIO fileIO, RowType rowType, CoreOptions options, RowType partitionType) {
         this.fileIO = fileIO;
         this.rowType = rowType;
+        this.partitionType = partitionType;
         this.fileFormat = fileFormat(options);
         this.writers = new HashMap<>();
         this.options = options;
@@ -72,18 +75,6 @@ public class FormatTableFileWrite {
         this.rowType = writeType;
     }
 
-    public List<CommitMessage> prepareCommit() throws Exception {
-        List<CommitMessage> commitMessages = new ArrayList<>();
-        for (FormatTableRecordWriter writer : writers.values()) {
-            List<TwoPhaseOutputStream.Committer> commiters = writer.closeAndGetCommitters();
-            for (TwoPhaseOutputStream.Committer committer : commiters) {
-                TwoPhaseCommitMessage twoPhaseCommitMessage = new TwoPhaseCommitMessage(committer);
-                commitMessages.add(twoPhaseCommitMessage);
-            }
-        }
-        return commitMessages;
-    }
-
     public void write(BinaryRow partition, InternalRow data) throws Exception {
         FormatTableRecordWriter writer = writers.get(partition);
         if (writer == null) {
@@ -97,13 +88,31 @@ public class FormatTableFileWrite {
         writers.clear();
     }
 
+    public List<CommitMessage> prepareCommit() throws Exception {
+        List<CommitMessage> commitMessages = new ArrayList<>();
+        for (FormatTableRecordWriter writer : writers.values()) {
+            List<TwoPhaseOutputStream.Committer> commiters = writer.closeAndGetCommitters();
+            for (TwoPhaseOutputStream.Committer committer : commiters) {
+                TwoPhaseCommitMessage twoPhaseCommitMessage = new TwoPhaseCommitMessage(committer);
+                commitMessages.add(twoPhaseCommitMessage);
+            }
+        }
+        return commitMessages;
+    }
+
     private FormatTableRecordWriter createWriter(BinaryRow partition) {
+        RowType writeRowType =
+                rowType.project(
+                        rowType.getFieldNames().stream()
+                                .filter(name -> !partitionType.getFieldNames().contains(name))
+                                .collect(Collectors.toList()));
         return new FormatTableRecordWriter(
                 fileIO,
                 fileFormat,
                 options.targetFileSize(false),
-                pathFactory.createFormatTableDataFilePathFactory(partition),
-                rowType,
+                pathFactory.createFormatTableDataFilePathFactory(
+                        partition, options.formatTablePartitionOnlyValueInPath()),
+                writeRowType,
                 options.fileCompression());
     }
 }
