@@ -50,12 +50,14 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.apache.paimon.format.text.HadoopCompressionUtils.isCompressed;
 import static org.apache.paimon.format.text.TextLineReader.isDefaultDelimiter;
@@ -69,18 +71,19 @@ public class FormatTableScan implements InnerTableScan {
     private final CoreOptions coreOptions;
     @Nullable private PartitionPredicate partitionFilter;
     @Nullable private final Integer limit;
-    private final long targetSplitSize;
+    @Nullable private final Integer minPartitionNum;
     private final FormatTable.Format format;
 
     public FormatTableScan(
             FormatTable table,
             @Nullable PartitionPredicate partitionFilter,
-            @Nullable Integer limit) {
+            @Nullable Integer limit,
+            @Nullable Integer minPartitionNum) {
         this.table = table;
         this.coreOptions = new CoreOptions(table.options());
         this.partitionFilter = partitionFilter;
         this.limit = limit;
-        this.targetSplitSize = coreOptions.splitTargetSize();
+        this.minPartitionNum = minPartitionNum;
         this.format = table.format();
     }
 
@@ -244,21 +247,37 @@ public class FormatTableScan implements InnerTableScan {
         return Pair.of(scanPath, level);
     }
 
+    public static long maxSplitBytes(
+            Supplier<Long> calculateTotalBytes, Integer minPartitionNum, CoreOptions conf) {
+        if (minPartitionNum != null) {
+            long defaultMaxSplitBytes = conf.splitTargetSize();
+            long openCostInBytes = conf.splitOpenFileCost();
+            long bytesPerCore = calculateTotalBytes.get() / minPartitionNum;
+            return Math.min(defaultMaxSplitBytes, Math.max(openCostInBytes, bytesPerCore));
+        }
+        return conf.splitTargetSize();
+    }
+
     private List<Split> createSplits(FileIO fileIO, Path path, BinaryRow partition)
             throws IOException {
         List<Split> splits = new ArrayList<>();
         FileStatus[] files = fileIO.listFiles(path, true);
+        Supplier<Long> calculateTotalBytes =
+                () -> Arrays.stream(files).map(FileStatus::getLen).reduce(0L, Long::sum);
+        long maxSplitBytes = maxSplitBytes(calculateTotalBytes, minPartitionNum, coreOptions);
         for (FileStatus file : files) {
             if (isDataFileName(file.getPath().getName())) {
-                List<FormatDataSplit> fileSplits = tryToSplitLargeFile(file, partition);
+                List<FormatDataSplit> fileSplits =
+                        tryToSplitLargeFile(file, partition, maxSplitBytes);
                 splits.addAll(fileSplits);
             }
         }
         return splits;
     }
 
-    private List<FormatDataSplit> tryToSplitLargeFile(FileStatus file, BinaryRow partition) {
-        if (!preferToSplitFile(file)) {
+    private List<FormatDataSplit> tryToSplitLargeFile(
+            FileStatus file, BinaryRow partition, long maxSplitBytes) {
+        if (!preferToSplitFile(file, maxSplitBytes)) {
             return Collections.singletonList(
                     new FormatDataSplit(file.getPath(), file.getLen(), partition));
         }
@@ -267,7 +286,7 @@ public class FormatTableScan implements InnerTableScan {
         long currentStart = 0;
 
         while (remainingBytes > 0) {
-            long splitSize = Math.min(targetSplitSize, remainingBytes);
+            long splitSize = Math.min(maxSplitBytes, remainingBytes);
 
             FormatDataSplit split =
                     new FormatDataSplit(
@@ -279,8 +298,8 @@ public class FormatTableScan implements InnerTableScan {
         return splits;
     }
 
-    private boolean preferToSplitFile(FileStatus file) {
-        if (file.getLen() <= targetSplitSize) {
+    private boolean preferToSplitFile(FileStatus file, long maxSplitBytes) {
+        if (file.getLen() <= maxSplitBytes) {
             return false;
         }
 

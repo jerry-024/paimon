@@ -157,6 +157,8 @@ public interface ReadBuilder extends Serializable {
      */
     ReadBuilder withRowIds(List<Long> indices);
 
+    ReadBuilder withMinPartitionNum(int minPartitionNum);
+
     /** Delete stats in scan plan result. */
     ReadBuilder dropStats();
 

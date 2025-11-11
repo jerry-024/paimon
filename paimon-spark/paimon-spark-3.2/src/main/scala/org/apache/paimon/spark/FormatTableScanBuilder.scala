@@ -21,21 +21,33 @@ package org.apache.paimon.spark
 import org.apache.paimon.table.FormatTable
 import org.apache.paimon.types.RowType
 
+import org.apache.spark.sql.PaimonSparkSession
+import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.connector.read.{SupportsPushDownRequiredColumns, SupportsRuntimeFiltering}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 
 import java.util.{List => JList}
 
 case class FormatTableScanBuilder(table: FormatTable)
   extends PaimonBasePushDown
-  with SupportsPushDownRequiredColumns {
+  with SupportsPushDownRequiredColumns
+  with SQLConfHelper {
 
   override protected var partitionKeys: JList[String] = table.partitionKeys()
+
   override protected var rowType: RowType = table.rowType()
+
   protected var requiredSchema: StructType = SparkTypeUtils.fromPaimonRowType(rowType)
 
+  private lazy val minPartitionNum = conf.filesMinPartitionNum
+    .getOrElse(
+      conf
+        .getConf(SQLConf.LEAF_NODE_DEFAULT_PARALLELISM)
+        .getOrElse(PaimonSparkSession.active.sparkContext.defaultParallelism))
+
   override def build(): PaimonFormatTableScan =
-    PaimonFormatTableScan(table, requiredSchema, pushedPaimonPredicates, None)
+    PaimonFormatTableScan(table, requiredSchema, pushedPaimonPredicates, None, minPartitionNum)
 
   override def pruneColumns(requiredSchema: StructType): Unit = {
     this.requiredSchema = requiredSchema

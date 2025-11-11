@@ -69,6 +69,7 @@ public class FormatReadBuilder implements ReadBuilder {
     @Nullable private Predicate filter;
     @Nullable private PartitionPredicate partitionFilter;
     @Nullable private Integer limit;
+    @Nullable private int minPartitionNum;
 
     public FormatReadBuilder(FormatTable table) {
         this.table = table;
@@ -137,6 +138,12 @@ public class FormatReadBuilder implements ReadBuilder {
     }
 
     @Override
+    public ReadBuilder withMinPartitionNum(int minPartitionNum) {
+        this.minPartitionNum = minPartitionNum;
+        return this;
+    }
+
+    @Override
     public TableScan newScan() {
         PartitionPredicate partitionFilter = this.partitionFilter;
         if (partitionFilter == null && this.filter != null && !table.partitionKeys().isEmpty()) {
@@ -149,7 +156,7 @@ public class FormatReadBuilder implements ReadBuilder {
                                 partitionType, PredicateBuilder.and(partitionFilters));
             }
         }
-        return new FormatTableScan(table, partitionFilter, limit);
+        return new FormatTableScan(table, partitionFilter, limit, minPartitionNum);
     }
 
     @Override

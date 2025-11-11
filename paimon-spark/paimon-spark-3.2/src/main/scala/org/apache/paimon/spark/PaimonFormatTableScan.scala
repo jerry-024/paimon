@@ -34,8 +34,9 @@ case class PaimonFormatTableScan(
     table: FormatTable,
     requiredSchema: StructType,
     filters: Seq[Predicate],
-    override val pushDownLimit: Option[Int])
-  extends PaimonFormatTableBaseScan(table, requiredSchema, filters, pushDownLimit)
+    override val pushDownLimit: Option[Int],
+    minPartitionNum: Int)
+  extends PaimonFormatTableBaseScan(table, requiredSchema, filters, pushDownLimit, minPartitionNum)
   with SupportsRuntimeFiltering
   with ScanHelper {
 

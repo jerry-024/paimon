@@ -697,7 +697,7 @@ public class FormatTableScanTest {
                             tableLocation,
                             FormatTable.Format.valueOf(format.toUpperCase()),
                             options);
-            FormatTableScan scan = new FormatTableScan(formatTable, null, null);
+            FormatTableScan scan = new FormatTableScan(formatTable, null, null, null);
             List<Split> splits = scan.plan().splits();
             assertThat(splits).hasSize(5);
         }
@@ -728,7 +728,7 @@ public class FormatTableScanTest {
                             tableLocation,
                             FormatTable.Format.valueOf(format.toUpperCase()),
                             options);
-            FormatTableScan scan = new FormatTableScan(formatTable, null, null);
+            FormatTableScan scan = new FormatTableScan(formatTable, null, null, null);
             List<Split> splits = scan.plan().splits();
             assertThat(splits).hasSize(3);
         }
@@ -750,7 +750,7 @@ public class FormatTableScanTest {
 
         FormatTable formatTable =
                 createFormatTableWithOptions(tableLocation, FormatTable.Format.PARQUET, options);
-        FormatTableScan scan = new FormatTableScan(formatTable, null, null);
+        FormatTableScan scan = new FormatTableScan(formatTable, null, null, null);
         List<Split> splits = scan.plan().splits();
 
         // Parquet files should NOT be split, should be a single split
@@ -769,7 +769,7 @@ public class FormatTableScanTest {
         FormatTable formatTable =
                 createFormatTableWithOptions(
                         tableLocation, FormatTable.Format.CSV, Collections.emptyMap());
-        FormatTableScan scan = new FormatTableScan(formatTable, null, null);
+        FormatTableScan scan = new FormatTableScan(formatTable, null, null, null);
         List<Split> splits = scan.plan().splits();
 
         assertThat(splits).isEmpty();

@@ -152,6 +152,11 @@ public class ReadBuilderImpl implements ReadBuilder {
     }
 
     @Override
+    public ReadBuilder withMinPartitionNum(int minPartitionNum) {
+        return this;
+    }
+
+    @Override
     public ReadBuilder withBucket(int bucket) {
         this.specifiedBucket = bucket;
         return this;

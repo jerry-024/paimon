@@ -23,6 +23,7 @@ import org.apache.paimon.predicate.Predicate
 import org.apache.paimon.table.FormatTable
 import org.apache.paimon.table.source.Split
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.connector.metric.{CustomMetric, CustomTaskMetric}
 import org.apache.spark.sql.connector.read.{Batch, Statistics, SupportsReportStatistics}
 import org.apache.spark.sql.types.StructType
@@ -34,10 +35,12 @@ abstract class PaimonFormatTableBaseScan(
     table: FormatTable,
     requiredSchema: StructType,
     filters: Seq[Predicate],
-    pushDownLimit: Option[Int])
+    pushDownLimit: Option[Int],
+    minPartitionNum: Int)
   extends ColumnPruningAndPushDown
   with SupportsReportStatistics
-  with ScanHelper {
+  with ScanHelper
+  with Logging {
 
   override val coreOptions: CoreOptions = CoreOptions.fromMap(table.options())
   protected var inputSplits: Array[Split] = _
@@ -45,7 +48,10 @@ abstract class PaimonFormatTableBaseScan(
 
   def getOriginSplits: Array[Split] = {
     if (inputSplits == null) {
+      logInfo(s"Start to get splits from table: ${table
+          .name()} minPartitionNum: ${Option.apply(minPartitionNum).getOrElse(0)}")
       inputSplits = readBuilder
+        .withMinPartitionNum(minPartitionNum)
         .newScan()
         .plan()
         .splits()
