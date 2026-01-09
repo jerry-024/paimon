@@ -16,9 +16,12 @@
 #  under the License.
 
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List, TYPE_CHECKING
 
 from pypaimon.index.deletion_vector_meta import DeletionVectorMeta
+
+if TYPE_CHECKING:
+    from pypaimon.globalindex.global_index_meta import GlobalIndexMeta
 
 
 @dataclass
@@ -31,6 +34,7 @@ class IndexFileMeta:
     row_count: int
     dv_ranges: Optional[Dict[str, DeletionVectorMeta]] = None
     external_path: Optional[str] = None
+    global_index_meta: Optional['GlobalIndexMeta'] = None
 
     def __eq__(self, other):
         if not isinstance(other, IndexFileMeta):
@@ -40,7 +44,8 @@ class IndexFileMeta:
                 self.file_size == other.file_size and
                 self.row_count == other.row_count and
                 self.dv_ranges == other.dv_ranges and
-                self.external_path == other.external_path)
+                self.external_path == other.external_path and
+                self.global_index_meta == other.global_index_meta)
 
     def __hash__(self):
         dv_ranges_tuple = tuple(sorted(self.dv_ranges.items())) if self.dv_ranges else None

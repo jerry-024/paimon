@@ -16,7 +16,9 @@
 # limitations under the License.
 ################################################################################
 
-from typing import List, Optional
+from typing import List, Optional, Union
+
+import numpy as np
 
 from pypaimon.common.predicate import Predicate
 from pypaimon.common.predicate_builder import PredicateBuilder
@@ -36,6 +38,7 @@ class ReadBuilder:
         self._predicate: Optional[Predicate] = None
         self._projection: Optional[List[str]] = None
         self._limit: Optional[int] = None
+        self._vector_search: Optional['VectorSearch'] = None
 
     def with_filter(self, predicate: Predicate) -> 'ReadBuilder':
         self._predicate = predicate
@@ -49,11 +52,38 @@ class ReadBuilder:
         self._limit = limit
         return self
 
+    def with_vector_search(
+        self,
+        vector: Union[List[float], np.ndarray],
+        field_name: str,
+        limit: int
+    ) -> 'ReadBuilder':
+        """
+        Add a vector similarity search to the read builder.
+        
+        Args:
+            vector: The query vector (list or numpy array of floats)
+            field_name: The name of the vector field to search
+            limit: Maximum number of results to return
+            
+        Returns:
+            This ReadBuilder for method chaining
+        """
+        from pypaimon.globalindex.vector_search import VectorSearch
+        
+        self._vector_search = VectorSearch(
+            vector=vector,
+            limit=limit,
+            field_name=field_name
+        )
+        return self
+
     def new_scan(self) -> TableScan:
         return TableScan(
             table=self.table,
             predicate=self._predicate,
-            limit=self._limit
+            limit=self._limit,
+            vector_search=self._vector_search
         )
 
     def new_read(self) -> TableRead:

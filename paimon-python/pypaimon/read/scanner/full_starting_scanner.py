@@ -17,7 +17,7 @@ limitations under the License.
 """
 import os
 from collections import defaultdict
-from typing import Callable, List, Optional, Dict, Set
+from typing import Callable, List, Optional, Dict, Set, TYPE_CHECKING
 
 from pypaimon.common.predicate import Predicate
 from pypaimon.table.source.deletion_file import DeletionFile
@@ -38,14 +38,24 @@ from pypaimon.table.bucket_mode import BucketMode
 from pypaimon.manifest.simple_stats_evolutions import SimpleStatsEvolutions
 from pypaimon.common.options.core_options import MergeEngine
 
+if TYPE_CHECKING:
+    from pypaimon.globalindex.vector_search import VectorSearch
+
 
 class FullStartingScanner(StartingScanner):
-    def __init__(self, table, predicate: Optional[Predicate], limit: Optional[int]):
+    def __init__(
+        self, 
+        table, 
+        predicate: Optional[Predicate], 
+        limit: Optional[int],
+        vector_search: Optional['VectorSearch'] = None
+    ):
         from pypaimon.table.file_store_table import FileStoreTable
 
         self.table: FileStoreTable = table
         self.predicate = predicate
         self.limit = limit
+        self.vector_search = vector_search
 
         self.snapshot_manager = SnapshotManager(table)
         self.manifest_list_manager = ManifestListManager(table)
