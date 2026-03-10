@@ -129,6 +129,10 @@ public class LuminaVectorGlobalIndexTest {
         for (String metric : metrics) {
             Options options = createDefaultOptions(dimension);
             options.setString("lumina.distance.metric", metric);
+            if ("cosine".equals(metric)) {
+                // Lumina v0.1.0 does not support PQ + cosine combination
+                options.setString(LuminaVectorIndexOptions.ENCODING_TYPE.key(), "rawf32");
+            }
             LuminaVectorIndexOptions indexOptions = new LuminaVectorIndexOptions(options);
             Path metricIndexPath = new Path(indexPath, metric.toLowerCase());
             GlobalIndexFileWriter fileWriter = createFileWriter(metricIndexPath);
@@ -316,6 +320,17 @@ public class LuminaVectorGlobalIndexTest {
     }
 
     @Test
+    public void testPQWithCosineRejected() {
+        Options options = new Options();
+        options.setInteger(LuminaVectorIndexOptions.DIMENSION.key(), 32);
+        options.setString(LuminaVectorIndexOptions.DISTANCE_METRIC.key(), "cosine");
+        options.setString(LuminaVectorIndexOptions.ENCODING_TYPE.key(), "pq");
+        assertThatThrownBy(() -> new LuminaVectorIndexOptions(options))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("PQ encoding with cosine metric");
+    }
+
+    @Test
     public void testInvalidTopK() {
         assertThatThrownBy(() -> new VectorSearch(new float[] {0.1f}, 0, fieldName))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -369,7 +384,6 @@ public class LuminaVectorGlobalIndexTest {
         Options options = new Options();
         options.setInteger(LuminaVectorIndexOptions.DIMENSION.key(), dimension);
         options.setString(LuminaVectorIndexOptions.DISTANCE_METRIC.key(), "l2");
-        options.setString(LuminaVectorIndexOptions.ENCODING_TYPE.key(), "rawf32");
         return options;
     }
 

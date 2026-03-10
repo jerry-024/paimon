@@ -26,7 +26,7 @@ import scala.collection.JavaConverters._
 class LuminaVectorIndexTest extends PaimonSparkTestBase {
 
   private val indexType = "lumina-vector-ann"
-  private val defaultOptions = "vector.dim=3,vector.index-type=DISKANN"
+  private val defaultOptions = "lumina.index.dimension=3"
 
   // ========== Index Creation Tests ==========
 

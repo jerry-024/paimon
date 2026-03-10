@@ -125,6 +125,7 @@ public class LuminaVectorIndexOptions {
     public LuminaVectorIndexOptions(Options options) {
         this.dimension = validatePositive(options.get(DIMENSION), DIMENSION.key());
         this.metric = parseMetric(options.get(DISTANCE_METRIC));
+        validateEncodingMetricCombination(options.get(ENCODING_TYPE), this.metric);
         this.luminaOptions = buildLuminaOptions(options);
     }
 
@@ -207,6 +208,15 @@ public class LuminaVectorIndexOptions {
             return LuminaVectorMetric.fromLuminaName(value);
         } catch (IllegalArgumentException e) {
             return LuminaVectorMetric.fromString(value);
+        }
+    }
+
+    private static void validateEncodingMetricCombination(
+            String encoding, LuminaVectorMetric metric) {
+        if ("pq".equalsIgnoreCase(encoding) && metric == LuminaVectorMetric.COSINE) {
+            throw new IllegalArgumentException(
+                    "Lumina does not support PQ encoding with cosine metric. "
+                            + "Please use 'rawf32' or 'sq8' encoding, or switch to 'l2' or 'inner_product' metric.");
         }
     }
 
