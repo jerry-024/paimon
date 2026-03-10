@@ -42,8 +42,10 @@ public class LuminaIndex implements Closeable {
     private LuminaSearcher searcher;
     private final int dimension;
     private final LuminaVectorMetric metric;
-    private static final String INDEX_TYPE = "diskann";
     private volatile boolean closed = false;
+
+    /** All lumina options (prefix-stripped), stored for building search options at query time. */
+    private Map<String, String> allOptions;
 
     private LuminaIndex(int dimension, LuminaVectorMetric metric) {
         this.dimension = dimension;
@@ -56,7 +58,12 @@ public class LuminaIndex implements Closeable {
         LuminaIndex index = new LuminaIndex(dimension, metric);
 
         Map<String, String> opts = new LinkedHashMap<>(extraOptions);
-        index.builder = LuminaBuilder.create(INDEX_TYPE, dimension, toMetricType(metric), opts);
+        index.builder =
+                LuminaBuilder.create(
+                        LuminaVectorIndexOptions.INDEX_TYPE.defaultValue(),
+                        dimension,
+                        toMetricType(metric),
+                        opts);
         return index;
     }
 
@@ -73,17 +80,14 @@ public class LuminaIndex implements Closeable {
             LuminaVectorMetric metric,
             Map<String, String> extraOptions) {
         LuminaIndex index = new LuminaIndex(dimension, metric);
-
-        Map<String, String> searcherOpts = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : extraOptions.entrySet()) {
-            String key = entry.getKey();
-            if (key.startsWith("diskann.search.")) {
-                searcherOpts.put(key, entry.getValue());
-            }
-        }
         index.searcher =
-                LuminaSearcher.create(INDEX_TYPE, dimension, toMetricType(metric), searcherOpts);
+                LuminaSearcher.create(
+                        LuminaVectorIndexOptions.INDEX_TYPE.defaultValue(),
+                        dimension,
+                        toMetricType(metric),
+                        extraOptions);
         index.searcher.open(fileInput, fileSize);
+        index.allOptions = extraOptions;
         return index;
     }
 
@@ -118,7 +122,7 @@ public class LuminaIndex implements Closeable {
             Map<String, String> searchOptions) {
         ensureOpen();
         ensureSearcher();
-        searcher.search(n, queryVectors, k, distances, labels, searchOptions);
+        searcher.search(n, queryVectors, k, distances, labels, filterSearchOptions(searchOptions));
     }
 
     /** Search for k nearest neighbors with native pre-filtering on vector IDs. */
@@ -132,7 +136,14 @@ public class LuminaIndex implements Closeable {
             Map<String, String> searchOptions) {
         ensureOpen();
         ensureSearcher();
-        searcher.searchWithFilter(n, queryVectors, k, distances, labels, filterIds, searchOptions);
+        searcher.searchWithFilter(
+                n,
+                queryVectors,
+                k,
+                distances,
+                labels,
+                filterIds,
+                filterSearchOptions(searchOptions));
     }
 
     /** Get the number of vectors (searcher mode). */
@@ -163,6 +174,24 @@ public class LuminaIndex implements Closeable {
 
     public static ByteBuffer allocateIdBuffer(int numIds) {
         return ByteBuffer.allocateDirect(numIds * Long.BYTES).order(ByteOrder.nativeOrder());
+    }
+
+    /**
+     * Filters an options map to only include keys valid for Lumina SearchOptions. This mirrors
+     * paimon-cpp's {@code NormalizeSearchOptions} which extracts only search-relevant keys.
+     *
+     * <p>Valid search option prefixes: {@code search.*} (core search options) and {@code
+     * diskann.search.*} (DiskANN-specific search options).
+     */
+    private static Map<String, String> filterSearchOptions(Map<String, String> options) {
+        Map<String, String> searchOpts = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : options.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("search.") || key.startsWith("diskann.search.")) {
+                searchOpts.put(key, entry.getValue());
+            }
+        }
+        return searchOpts;
     }
 
     private void ensureOpen() {
