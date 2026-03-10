@@ -120,7 +120,7 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
     private GlobalIndexResult search(
             VectorSearch vectorSearch, LuminaIndex[] loadedIndices, LuminaIndexMeta[] loadedMetas)
             throws IOException {
-        validateVectorType(vectorSearch.vector());
+        validateSearchVector(vectorSearch.vector());
         float[] queryVector = ((float[]) vectorSearch.vector()).clone();
         int limit = vectorSearch.limit();
 
@@ -150,18 +150,20 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
                 continue;
             }
 
+            LuminaIndexMeta meta = loadedMetas[i];
+            LuminaVectorMetric indexMetric = LuminaVectorMetric.fromValue(meta.metricValue());
+
             int effectiveK = (int) Math.min(limit, index.size());
             if (effectiveK <= 0) {
                 continue;
             }
 
             if (includeRowIds != null) {
-                LuminaIndexMeta meta = loadedMetas[i];
                 long[] scopedIds = extractIdsInRange(includeRowIds, meta.minId(), meta.maxId());
                 if (scopedIds.length == 0) {
                     continue;
                 }
-                effectiveK = (int) Math.min(effectiveK, scopedIds.length);
+                effectiveK = Math.min(effectiveK, scopedIds.length);
 
                 float[] distances = new float[effectiveK];
                 long[] labels = new long[effectiveK];
@@ -173,12 +175,12 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
                         labels,
                         scopedIds,
                         filterSearchOptions);
-                collectResults(distances, labels, effectiveK, limit, topK);
+                collectResults(distances, labels, effectiveK, limit, topK, indexMetric);
             } else {
                 float[] distances = new float[effectiveK];
                 long[] labels = new long[effectiveK];
                 index.search(queryVector, 1, effectiveK, distances, labels, plainSearchOptions);
-                collectResults(distances, labels, effectiveK, limit, topK);
+                collectResults(distances, labels, effectiveK, limit, topK, indexMetric);
             }
         }
 
@@ -194,16 +196,23 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
     /**
      * Collect search results into a min-heap of size {@code limit}. The heap keeps the top-k
      * highest-scoring rows; rows with score lower than the current minimum are discarded once the
-     * heap is full.
+     * heap is full. The metric from the index file's metadata is used for distance→score conversion
+     * so that results remain correct even if table-level options have changed since the index was
+     * built.
      */
-    private void collectResults(
-            float[] distances, long[] labels, int count, int limit, PriorityQueue<ScoredRow> topK) {
+    private static void collectResults(
+            float[] distances,
+            long[] labels,
+            int count,
+            int limit,
+            PriorityQueue<ScoredRow> topK,
+            LuminaVectorMetric metric) {
         for (int i = 0; i < count; i++) {
             long rowId = labels[i];
             if (rowId < 0) {
                 continue;
             }
-            float score = convertDistanceToScore(distances[i]);
+            float score = convertDistanceToScore(distances[i], metric);
             if (topK.size() < limit) {
                 topK.offer(new ScoredRow(rowId, score));
             } else if (score > topK.peek().score) {
@@ -225,10 +234,15 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
         return bitmap.toArrayInRange(minId, maxId);
     }
 
-    private float convertDistanceToScore(float distance) {
-        if (options.metric() == LuminaVectorMetric.L2) {
+    /**
+     * Convert a raw distance returned by Lumina into a similarity score using the metric recorded
+     * in the index file's metadata, not the current table options. This ensures correct scoring
+     * even when table options have been changed after the index was built.
+     */
+    private static float convertDistanceToScore(float distance, LuminaVectorMetric metric) {
+        if (metric == LuminaVectorMetric.L2) {
             return 1.0f / (1.0f + distance);
-        } else if (options.metric() == LuminaVectorMetric.COSINE) {
+        } else if (metric == LuminaVectorMetric.COSINE) {
             // Cosine distance is in [0, 2]; convert to similarity in [-1, 1]
             return 1.0f - distance;
         } else {
@@ -237,7 +251,7 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
         }
     }
 
-    private void validateVectorType(Object vector) {
+    private void validateSearchVector(Object vector) {
         if (!(vector instanceof float[])) {
             throw new IllegalArgumentException(
                     "Expected float[] vector but got: " + vector.getClass());
@@ -246,6 +260,14 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
                 || !(((ArrayType) fieldType).getElementType() instanceof FloatType)) {
             throw new IllegalArgumentException(
                     "Lumina currently only supports float arrays, but field type is: " + fieldType);
+        }
+        int queryDim = ((float[]) vector).length;
+        int expectedDim = options.dimension();
+        if (queryDim != expectedDim) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "Query vector dimension mismatch: expected %d, but got %d",
+                            expectedDim, queryDim));
         }
     }
 
