@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link RoaringNavigableMap64}. */
 public class RoaringNavigableMap64Test {
@@ -107,5 +108,138 @@ public class RoaringNavigableMap64Test {
         assertThat(values).hasSize(101);
         assertThat(values.get(0)).isEqualTo(start);
         assertThat(values.get(100)).isEqualTo(end);
+    }
+
+    @Test
+    public void testIntersectsRangeBasic() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.addRange(new Range(10, 20));
+
+        // Exact overlap
+        assertThat(bitmap.intersectsRange(10, 20)).isTrue();
+        // Partial overlap at start
+        assertThat(bitmap.intersectsRange(5, 15)).isTrue();
+        // Partial overlap at end
+        assertThat(bitmap.intersectsRange(15, 25)).isTrue();
+        // Query range fully contains bitmap range
+        assertThat(bitmap.intersectsRange(0, 100)).isTrue();
+        // Query range fully inside bitmap range
+        assertThat(bitmap.intersectsRange(12, 18)).isTrue();
+        // Single point overlap at boundary
+        assertThat(bitmap.intersectsRange(10, 10)).isTrue();
+        assertThat(bitmap.intersectsRange(20, 20)).isTrue();
+        // No overlap -- below
+        assertThat(bitmap.intersectsRange(0, 9)).isFalse();
+        // No overlap -- above
+        assertThat(bitmap.intersectsRange(21, 30)).isFalse();
+    }
+
+    @Test
+    public void testIntersectsRangeEmptyBitmap() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        assertThat(bitmap.intersectsRange(0, 100)).isFalse();
+    }
+
+    @Test
+    public void testIntersectsRangeDisjointRanges() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.addRange(new Range(0, 5));
+        bitmap.addRange(new Range(20, 25));
+
+        // Query falls in the gap
+        assertThat(bitmap.intersectsRange(6, 19)).isFalse();
+        // Query overlaps first range only
+        assertThat(bitmap.intersectsRange(3, 8)).isTrue();
+        // Query overlaps second range only
+        assertThat(bitmap.intersectsRange(18, 22)).isTrue();
+        // Query spans both ranges
+        assertThat(bitmap.intersectsRange(4, 21)).isTrue();
+    }
+
+    @Test
+    public void testIntersectsRangeWithSingleElement() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.add(42);
+
+        assertThat(bitmap.intersectsRange(42, 42)).isTrue();
+        assertThat(bitmap.intersectsRange(40, 44)).isTrue();
+        assertThat(bitmap.intersectsRange(0, 41)).isFalse();
+        assertThat(bitmap.intersectsRange(43, 100)).isFalse();
+    }
+
+    @Test
+    public void testIntersectsRangeStartAtZero() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.add(0);
+        bitmap.add(1);
+
+        assertThat(bitmap.intersectsRange(0, 0)).isTrue();
+        assertThat(bitmap.intersectsRange(0, 1)).isTrue();
+        assertThat(bitmap.intersectsRange(2, 5)).isFalse();
+    }
+
+    @Test
+    public void testIntersectsRangeInvalidArgument() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        assertThatThrownBy(() -> bitmap.intersectsRange(10, 5))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("rangeMin");
+    }
+
+    @Test
+    public void testToArrayInRangeBasic() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.addRange(new Range(10, 20));
+
+        // Exact range
+        assertThat(bitmap.toArrayInRange(10, 20)).hasSize(11);
+        // Sub-range
+        assertThat(bitmap.toArrayInRange(12, 15)).containsExactly(12L, 13L, 14L, 15L);
+        // Wider range
+        assertThat(bitmap.toArrayInRange(0, 100)).hasSize(11);
+        // No overlap
+        assertThat(bitmap.toArrayInRange(0, 9)).isEmpty();
+        assertThat(bitmap.toArrayInRange(21, 30)).isEmpty();
+        // Single element boundary
+        assertThat(bitmap.toArrayInRange(10, 10)).containsExactly(10L);
+        assertThat(bitmap.toArrayInRange(20, 20)).containsExactly(20L);
+    }
+
+    @Test
+    public void testToArrayInRangeDisjointBitmap() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.add(5);
+        bitmap.add(10);
+        bitmap.add(100);
+
+        // Range covers only some elements
+        assertThat(bitmap.toArrayInRange(5, 10)).containsExactly(5L, 10L);
+        assertThat(bitmap.toArrayInRange(6, 99)).containsExactly(10L);
+        assertThat(bitmap.toArrayInRange(0, 1000)).containsExactly(5L, 10L, 100L);
+    }
+
+    @Test
+    public void testToArrayInRangeEmpty() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        assertThat(bitmap.toArrayInRange(0, 100)).isEmpty();
+    }
+
+    @Test
+    public void testToArrayInRangeStartAtZero() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        bitmap.add(0);
+        bitmap.add(1);
+        bitmap.add(2);
+
+        assertThat(bitmap.toArrayInRange(0, 1)).containsExactly(0L, 1L);
+        assertThat(bitmap.toArrayInRange(0, 0)).containsExactly(0L);
+    }
+
+    @Test
+    public void testToArrayInRangeInvalidArgument() {
+        RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+        assertThatThrownBy(() -> bitmap.toArrayInRange(10, 5))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("rangeMin");
     }
 }

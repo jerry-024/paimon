@@ -163,8 +163,19 @@ public class LuminaIndex implements Closeable {
     }
 
     public static ByteBuffer allocateVectorBuffer(int numVectors, int dimension) {
-        return ByteBuffer.allocateDirect(numVectors * dimension * Float.BYTES)
-                .order(ByteOrder.nativeOrder());
+        long size = (long) numVectors * dimension * Float.BYTES;
+        if (size > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Vector buffer size exceeds Integer.MAX_VALUE: "
+                            + numVectors
+                            + " * "
+                            + dimension
+                            + " * "
+                            + Float.BYTES
+                            + " = "
+                            + size);
+        }
+        return ByteBuffer.allocateDirect((int) size).order(ByteOrder.nativeOrder());
     }
 
     public static ByteBuffer allocateIdBuffer(int numIds) {

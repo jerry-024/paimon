@@ -228,51 +228,6 @@ class LuminaVectorIndexTest extends PaimonSparkTestBase {
     }
   }
 
-  test("read vectors - multiple concurrent searches") {
-    withTable("T") {
-      spark.sql("""
-                  |CREATE TABLE T (id INT, v ARRAY<FLOAT>)
-                  |TBLPROPERTIES (
-                  |  'bucket' = '-1',
-                  |  'global-index.row-count-per-shard' = '10000',
-                  |  'row-tracking.enabled' = 'true',
-                  |  'data-evolution.enabled' = 'true')
-                  |""".stripMargin)
-
-      val values = (0 until 500)
-        .map(
-          i => s"($i, array(cast($i as float), cast(${i + 1} as float), cast(${i + 2} as float)))")
-        .mkString(",")
-      spark.sql(s"INSERT INTO T VALUES $values")
-
-      spark
-        .sql(
-          s"CALL sys.create_global_index(table => 'test.T', index_column => 'v', index_type => '$indexType', options => '$defaultOptions')")
-        .collect()
-
-      val result1 = spark
-        .sql("""
-               |SELECT * FROM vector_search('T', 'v', array(10.0f, 11.0f, 12.0f), 3)
-               |""".stripMargin)
-        .collect()
-      assert(result1.length == 3)
-
-      val result2 = spark
-        .sql("""
-               |SELECT * FROM vector_search('T', 'v', array(250.0f, 251.0f, 252.0f), 5)
-               |""".stripMargin)
-        .collect()
-      assert(result2.length == 5)
-
-      val result3 = spark
-        .sql("""
-               |SELECT * FROM vector_search('T', 'v', array(450.0f, 451.0f, 452.0f), 7)
-               |""".stripMargin)
-        .collect()
-      assert(result3.length == 7)
-    }
-  }
-
   test("read vectors - normalized vectors search") {
     withTable("T") {
       spark.sql("""

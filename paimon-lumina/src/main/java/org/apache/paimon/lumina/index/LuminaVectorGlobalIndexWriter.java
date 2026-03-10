@@ -40,19 +40,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-/**
- * Vector global index writer using Lumina.
- *
- * <p>Vectors are collected until the current index reaches {@code sizePerIndex} vectors, then
- * pretrained, inserted in a single batch, and dumped to a file. DiskANN requires exactly one
- * pretrain and one insertBatch call per index.
- *
- * <p>Each written vector is assigned a monotonically increasing 64-bit row ID ({@code count}) that
- * spans across all produced index files. The second index file's IDs therefore start from {@code
- * sizePerIndex}, not from 0. The min/max IDs stored in {@link LuminaIndexMeta} reflect this global
- * range, enabling the reader to skip index files that have no overlap with a given filter set.
- */
+/** Vector global index writer using Lumina. */
 public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter, Closeable {
+
+    private static final String FILE_NAME_PREFIX = "lumina";
 
     private final GlobalIndexFileWriter fileWriter;
     private final LuminaVectorIndexOptions options;
@@ -62,11 +53,7 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
     private long count = 0; // monotonically increasing global row ID across all index files
     private long currentIndexMinId = Long.MAX_VALUE;
     private long currentIndexMaxId = Long.MIN_VALUE;
-    private ByteBuffer pendingVectors;
-    private ByteBuffer pendingIds;
-    private FloatBuffer pendingFloatView;
-    private LongBuffer pendingLongView;
-    private int pendingCount = 0;
+    private List<float[]> pendingVectors;
     private final List<ResultEntry> results;
 
     public LuminaVectorGlobalIndexWriter(
@@ -81,10 +68,7 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
         int maxByDim =
                 (int) Math.min(configuredSize, buildMemoryLimit / ((long) dim * Float.BYTES));
         this.sizePerIndex = Math.max(maxByDim, 1);
-        this.pendingVectors = LuminaIndex.allocateVectorBuffer(sizePerIndex, dim);
-        this.pendingIds = LuminaIndex.allocateIdBuffer(sizePerIndex);
-        this.pendingFloatView = pendingVectors.asFloatBuffer();
-        this.pendingLongView = pendingIds.asLongBuffer();
+        this.pendingVectors = new ArrayList<>();
         this.results = new ArrayList<>();
 
         validateFieldType(fieldType);
@@ -105,8 +89,11 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
     @Override
     public void write(Object fieldData) {
         float[] vector;
+        if (fieldData == null) {
+            throw new IllegalArgumentException("Field data must not be null");
+        }
         if (fieldData instanceof float[]) {
-            vector = (float[]) fieldData;
+            vector = ((float[]) fieldData).clone();
         } else if (fieldData instanceof InternalArray) {
             vector = ((InternalArray) fieldData).toFloatArray();
         } else {
@@ -114,21 +101,14 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
                     "Unsupported vector type: " + fieldData.getClass().getName());
         }
         checkDimension(vector);
-        if (options.normalize()) {
-            LuminaVectorUtils.normalizeL2(vector);
-        }
+
+        pendingVectors.add(vector);
         currentIndexMinId = Math.min(currentIndexMinId, count);
         currentIndexMaxId = Math.max(currentIndexMaxId, count);
-        int offset = pendingCount * dim;
-        for (int i = 0; i < dim; i++) {
-            pendingFloatView.put(offset + i, vector[i]);
-        }
-        pendingLongView.put(pendingCount, count);
-        pendingCount++;
         count++;
 
         try {
-            if (pendingCount >= sizePerIndex) {
+            if (pendingVectors.size() >= sizePerIndex) {
                 buildAndFlushIndex();
             }
         } catch (IOException e) {
@@ -139,7 +119,7 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
     @Override
     public List<ResultEntry> finish() {
         try {
-            if (pendingCount > 0) {
+            if (!pendingVectors.isEmpty()) {
                 buildAndFlushIndex();
             }
             return results;
@@ -149,35 +129,40 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
     }
 
     /**
-     * Build a complete DiskANN index from the current pending batch: create index, pretrain, insert
-     * all vectors in a single batch, dump directly to the output stream, and close.
+     * Build a complete DiskANN index from the accumulated vectors: create DirectByteBuffers on
+     * demand, pretrain, insert all vectors in a single batch, dump directly to the output stream,
+     * and release buffers.
      */
     private void buildAndFlushIndex() throws IOException {
-        if (pendingCount == 0) {
+        int n = pendingVectors.size();
+        if (n == 0) {
             return;
         }
 
-        int n = pendingCount;
-        LuminaIndex index = createIndex();
+        try (LuminaIndex index = createIndex()) {
+            // Build the full vector buffer from accumulated vectors.
+            ByteBuffer vectorBuffer = buildVectorBuffer(pendingVectors);
+            ByteBuffer idBuffer = buildIdBuffer(n, currentIndexMinId);
 
-        try {
+            // Pretrain phase.
             int trainingSize = Math.min(n, options.trainingSize());
-            int[] sampleIndices = reservoirSample(n, trainingSize);
-            ByteBuffer trainingBuffer = LuminaIndex.allocateVectorBuffer(trainingSize, dim);
-            FloatBuffer trainingFloatView = trainingBuffer.asFloatBuffer();
-            for (int i = 0; i < trainingSize; i++) {
-                int srcOffset = sampleIndices[i] * dim;
-                for (int j = 0; j < dim; j++) {
-                    trainingFloatView.put(i * dim + j, pendingFloatView.get(srcOffset + j));
+            if (trainingSize == n) {
+                index.pretrain(vectorBuffer, n);
+            } else {
+                int[] sampleIndices = reservoirSample(n, trainingSize);
+                ByteBuffer trainingBuffer = LuminaIndex.allocateVectorBuffer(trainingSize, dim);
+                FloatBuffer trainingView = trainingBuffer.asFloatBuffer();
+                for (int i = 0; i < trainingSize; i++) {
+                    trainingView.put(pendingVectors.get(sampleIndices[i]));
                 }
+                index.pretrain(trainingBuffer, trainingSize);
             }
-            index.pretrain(trainingBuffer, trainingSize);
-            trainingBuffer = null;
-            trainingFloatView = null;
 
-            index.insertBatch(pendingVectors, pendingIds, n);
+            // Insert phase.
+            index.insertBatch(vectorBuffer, idBuffer, n);
 
-            String fileName = fileWriter.newFileName(LuminaVectorGlobalIndexerFactory.IDENTIFIER);
+            // Dump to output stream — direct streaming, no temp files.
+            String fileName = fileWriter.newFileName(FILE_NAME_PREFIX);
             try (PositionOutputStream out = fileWriter.newOutputStream(fileName)) {
                 index.dump(new OutputStreamFileOutput(out));
                 out.flush();
@@ -192,13 +177,36 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
                             currentIndexMinId,
                             currentIndexMaxId);
             results.add(new ResultEntry(fileName, n, meta.serialize()));
-        } finally {
-            index.close();
         }
 
-        pendingCount = 0;
+        // Release accumulated vectors.
+        pendingVectors.clear();
         currentIndexMinId = Long.MAX_VALUE;
         currentIndexMaxId = Long.MIN_VALUE;
+    }
+
+    /**
+     * Build a DirectByteBuffer from accumulated vectors. Each float[] is copied into a contiguous
+     * native-order buffer suitable for JNI. The source arrays remain valid until {@link
+     * #pendingVectors} is cleared after a successful build.
+     */
+    private ByteBuffer buildVectorBuffer(List<float[]> vectors) {
+        ByteBuffer buffer = LuminaIndex.allocateVectorBuffer(vectors.size(), dim);
+        FloatBuffer floatView = buffer.asFloatBuffer();
+        for (float[] vec : vectors) {
+            floatView.put(vec);
+        }
+        return buffer;
+    }
+
+    /** Build an ID buffer with monotonically increasing IDs starting from {@code startId}. */
+    private static ByteBuffer buildIdBuffer(int count, long startId) {
+        ByteBuffer buffer = LuminaIndex.allocateIdBuffer(count);
+        LongBuffer longView = buffer.asLongBuffer();
+        for (int i = 0; i < count; i++) {
+            longView.put(i, startId + i);
+        }
+        return buffer;
     }
 
     private LuminaIndex createIndex() {
@@ -263,15 +271,14 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
 
     @Override
     public void close() {
-        pendingVectors = null;
-        pendingIds = null;
-        pendingFloatView = null;
-        pendingLongView = null;
-        pendingCount = 0;
+        if (pendingVectors != null) {
+            pendingVectors.clear();
+            pendingVectors = null;
+        }
     }
 
     /** Adapts a {@link PositionOutputStream} to the {@link LuminaFileOutput} JNI callback API. */
-    private static class OutputStreamFileOutput implements LuminaFileOutput {
+    static class OutputStreamFileOutput implements LuminaFileOutput {
         private final PositionOutputStream out;
 
         OutputStreamFileOutput(PositionOutputStream out) {

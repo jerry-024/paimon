@@ -23,7 +23,6 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.PositionOutputStream;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.globalindex.GlobalIndexIOMeta;
-import org.apache.paimon.globalindex.GlobalIndexResult;
 import org.apache.paimon.globalindex.ResultEntry;
 import org.apache.paimon.globalindex.io.GlobalIndexFileReader;
 import org.apache.paimon.globalindex.io.GlobalIndexFileWriter;
@@ -145,8 +144,16 @@ public class LuminaVectorGlobalIndexTest {
                     new LuminaVectorGlobalIndexReader(
                             fileReader, metas, vectorType, indexOptions)) {
                 VectorSearch vectorSearch = new VectorSearch(testVectors.get(0), 3, fieldName);
-                GlobalIndexResult searchResult = reader.visitVectorSearch(vectorSearch).get();
-                assertThat(searchResult).isNotNull();
+                LuminaScoredGlobalIndexResult searchResult =
+                        (LuminaScoredGlobalIndexResult)
+                                reader.visitVectorSearch(vectorSearch).get();
+                assertThat(searchResult.results().getLongCardinality()).isEqualTo(3);
+                // The query vector is testVectors.get(0) which was written as row 0,
+                // so row 0 should always be in the top-3 results (exact match).
+                assertThat(searchResult.results().contains(0L)).isTrue();
+                // Score for the exact match should be valid
+                float score = searchResult.scoreGetter().score(0L);
+                assertThat(score).isNotNaN();
             }
         }
     }
@@ -183,8 +190,15 @@ public class LuminaVectorGlobalIndexTest {
                     new LuminaVectorGlobalIndexReader(
                             fileReader, metas, vectorType, indexOptions)) {
                 VectorSearch vectorSearch = new VectorSearch(testVectors.get(0), 5, fieldName);
-                GlobalIndexResult searchResult = reader.visitVectorSearch(vectorSearch).get();
-                assertThat(searchResult).isNotNull();
+                LuminaScoredGlobalIndexResult searchResult =
+                        (LuminaScoredGlobalIndexResult)
+                                reader.visitVectorSearch(vectorSearch).get();
+                assertThat(searchResult.results().getLongCardinality()).isEqualTo(5);
+                // The query vector is testVectors.get(0) which was written as row 0,
+                // so row 0 should always be in the top-5 results (exact match).
+                assertThat(searchResult.results().contains(0L)).isTrue();
+                float score = searchResult.scoreGetter().score(0L);
+                assertThat(score).isNotNaN();
             }
         }
     }
@@ -238,19 +252,30 @@ public class LuminaVectorGlobalIndexTest {
 
         try (LuminaVectorGlobalIndexReader reader =
                 new LuminaVectorGlobalIndexReader(fileReader, metas, vectorType, indexOptions)) {
+            // Query vector[0] = (1.0, 0.0); nearest neighbors by L2 should be
+            // row 0 (1.0, 0.0), row 3 (0.98, 0.05), row 1 (0.95, 0.1).
             VectorSearch vectorSearch = new VectorSearch(vectors[0], 3, fieldName);
             LuminaScoredGlobalIndexResult result =
                     (LuminaScoredGlobalIndexResult) reader.visitVectorSearch(vectorSearch).get();
-            assertThat(result.results().getLongCardinality()).isGreaterThan(0);
+            assertThat(result.results().getLongCardinality()).isEqualTo(3);
+            // Row 0 is the exact match and must be present
+            assertThat(result.results().contains(0L)).isTrue();
+            // Row 3 (0.98, 0.05) is the second closest
+            assertThat(result.results().contains(3L)).isTrue();
+            // Score of exact match should be highest (L2: 1/(1+0) = 1.0)
+            float scoreRow0 = result.scoreGetter().score(0L);
+            float scoreRow3 = result.scoreGetter().score(3L);
+            assertThat(scoreRow0).isGreaterThanOrEqualTo(scoreRow3);
 
-            // Test with filter
+            // Test with filter: only row 1
             long expectedRowId = 1;
             RoaringNavigableMap64 filterResults = new RoaringNavigableMap64();
             filterResults.add(expectedRowId);
             vectorSearch =
                     new VectorSearch(vectors[0], 3, fieldName).withIncludeRowIds(filterResults);
             result = (LuminaScoredGlobalIndexResult) reader.visitVectorSearch(vectorSearch).get();
-            assertThat(result.results().getLongCardinality()).isGreaterThan(0);
+            assertThat(result.results().getLongCardinality()).isEqualTo(1);
+            assertThat(result.results().contains(expectedRowId)).isTrue();
 
             // Test with multiple results
             float[] queryVector = new float[] {0.85f, 0.15f};
@@ -364,9 +389,12 @@ public class LuminaVectorGlobalIndexTest {
         try (LuminaVectorGlobalIndexReader reader =
                 new LuminaVectorGlobalIndexReader(fileReader, metas, vectorType, indexOptions)) {
             VectorSearch vectorSearch = new VectorSearch(testVectors.get(10), 3, fieldName);
-            GlobalIndexResult searchResult = reader.visitVectorSearch(vectorSearch).get();
-            assertThat(searchResult).isNotNull();
-            assertThat(searchResult.results().getLongCardinality()).isGreaterThan(0);
+            LuminaScoredGlobalIndexResult searchResult =
+                    (LuminaScoredGlobalIndexResult) reader.visitVectorSearch(vectorSearch).get();
+            assertThat(searchResult.results().getLongCardinality()).isEqualTo(3);
+            // Query is testVectors[10], which was written as row 10 — exact match must appear.
+            assertThat(searchResult.results().contains(10L)).isTrue();
+            assertThat(searchResult.scoreGetter().score(10L)).isNotNaN();
         }
     }
 
@@ -400,25 +428,23 @@ public class LuminaVectorGlobalIndexTest {
 
         try (LuminaVectorGlobalIndexReader reader =
                 new LuminaVectorGlobalIndexReader(fileReader, metas, vectorType, indexOptions)) {
-            VectorSearch vectorSearch = new VectorSearch(testVectors.get(50), 3, fieldName);
-            GlobalIndexResult searchResult = reader.visitVectorSearch(vectorSearch).get();
-            assertThat(searchResult).isNotNull();
-            assertThat(searchResult.results().getLongCardinality()).isGreaterThan(0);
+            // Query vectors from different index file shards and verify exact match is returned.
+            for (int queryIdx : new int[] {50, 150, 320}) {
+                VectorSearch vectorSearch =
+                        new VectorSearch(testVectors.get(queryIdx), 3, fieldName);
+                LuminaScoredGlobalIndexResult searchResult =
+                        (LuminaScoredGlobalIndexResult)
+                                reader.visitVectorSearch(vectorSearch).get();
+                assertThat(searchResult.results().getLongCardinality()).isEqualTo(3);
+                assertThat(searchResult.results().contains((long) queryIdx)).isTrue();
+                assertThat(searchResult.scoreGetter().score((long) queryIdx)).isNotNaN();
+            }
 
-            vectorSearch = new VectorSearch(testVectors.get(150), 3, fieldName);
-            searchResult = reader.visitVectorSearch(vectorSearch).get();
-            assertThat(searchResult).isNotNull();
-            assertThat(searchResult.results().getLongCardinality()).isGreaterThan(0);
-
-            vectorSearch = new VectorSearch(testVectors.get(320), 3, fieldName);
-            searchResult = reader.visitVectorSearch(vectorSearch).get();
-            assertThat(searchResult).isNotNull();
-            assertThat(searchResult.results().getLongCardinality()).isGreaterThan(0);
-
-            vectorSearch = new VectorSearch(testVectors.get(200), 5, fieldName);
+            VectorSearch vectorSearch = new VectorSearch(testVectors.get(200), 5, fieldName);
             LuminaScoredGlobalIndexResult result =
                     (LuminaScoredGlobalIndexResult) reader.visitVectorSearch(vectorSearch).get();
-            assertThat(result.results().getLongCardinality()).isGreaterThan(0);
+            assertThat(result.results().getLongCardinality()).isEqualTo(5);
+            assertThat(result.results().contains(200L)).isTrue();
         }
     }
 
@@ -453,15 +479,19 @@ public class LuminaVectorGlobalIndexTest {
 
         try (LuminaVectorGlobalIndexReader reader =
                 new LuminaVectorGlobalIndexReader(fileReader, metas, vectorType, indexOptions)) {
+            // Row 60 is in the remainder shard (indices 50-72).
             VectorSearch vectorSearch = new VectorSearch(testVectors.get(60), 3, fieldName);
-            GlobalIndexResult searchResult = reader.visitVectorSearch(vectorSearch).get();
-            assertThat(searchResult).isNotNull();
-            assertThat(searchResult.results().getLongCardinality()).isGreaterThan(0);
+            LuminaScoredGlobalIndexResult searchResult =
+                    (LuminaScoredGlobalIndexResult) reader.visitVectorSearch(vectorSearch).get();
+            assertThat(searchResult.results().getLongCardinality()).isEqualTo(3);
+            assertThat(searchResult.results().contains(60L)).isTrue();
 
+            // Row 72 is the last vector in the remainder shard.
             vectorSearch = new VectorSearch(testVectors.get(72), 3, fieldName);
-            searchResult = reader.visitVectorSearch(vectorSearch).get();
-            assertThat(searchResult).isNotNull();
-            assertThat(searchResult.results().getLongCardinality()).isGreaterThan(0);
+            searchResult =
+                    (LuminaScoredGlobalIndexResult) reader.visitVectorSearch(vectorSearch).get();
+            assertThat(searchResult.results().getLongCardinality()).isEqualTo(3);
+            assertThat(searchResult.results().contains(72L)).isTrue();
         }
     }
 

@@ -143,19 +143,45 @@ public class RoaringNavigableMap64 implements Iterable<Long> {
     }
 
     /**
-     * Returns true if there is at least one value in the range [minId, maxId] (inclusive on both
-     * ends) contained in this bitmap.
+     * Returns true if there is at least one value in the range [rangeMin, rangeMax] (inclusive on
+     * both ends) contained in this bitmap.
      *
      * <p>Uses {@code rankLong} for O(log N) performance instead of iterating all values.
      */
-    public boolean containsRange(long minId, long maxId) {
-        if (minId > maxId) {
+    public boolean intersectsRange(long rangeMin, long rangeMax) {
+        if (rangeMin > rangeMax) {
             throw new IllegalArgumentException(
-                    "minId (" + minId + ") must be <= maxId (" + maxId + ")");
+                    "rangeMin (" + rangeMin + ") must be <= rangeMax (" + rangeMax + ")");
         }
-        long countUpToMax = roaring64NavigableMap.rankLong(maxId);
-        long countBeforeMin = minId > 0 ? roaring64NavigableMap.rankLong(minId - 1) : 0;
+        long countUpToMax = roaring64NavigableMap.rankLong(rangeMax);
+        long countBeforeMin = rangeMin <= 0 ? 0 : roaring64NavigableMap.rankLong(rangeMin - 1);
         return countUpToMax > countBeforeMin;
+    }
+
+    /**
+     * Returns the values in this bitmap that fall within [rangeMin, rangeMax] (inclusive) as a
+     * {@code long[]}.
+     *
+     * <p>Uses {@code rankLong} and {@code select} to skip directly to the first element in range,
+     * giving O(K log N) performance where K is the number of matching elements, instead of O(N)
+     * iteration from the beginning.
+     */
+    public long[] toArrayInRange(long rangeMin, long rangeMax) {
+        if (rangeMin > rangeMax) {
+            throw new IllegalArgumentException(
+                    "rangeMin (" + rangeMin + ") must be <= rangeMax (" + rangeMax + ")");
+        }
+        long countUpToMax = roaring64NavigableMap.rankLong(rangeMax);
+        long countBeforeMin = rangeMin <= 0 ? 0 : roaring64NavigableMap.rankLong(rangeMin - 1);
+        long count = countUpToMax - countBeforeMin;
+        if (count <= 0) {
+            return new long[0];
+        }
+        long[] result = new long[(int) count];
+        for (int i = 0; i < count; i++) {
+            result[i] = roaring64NavigableMap.select(countBeforeMin + i);
+        }
+        return result;
     }
 
     public static RoaringNavigableMap64 bitmapOf(long... dat) {

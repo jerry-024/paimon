@@ -70,13 +70,6 @@ public class LuminaVectorIndexOptions {
                     .withDescription(
                             "The multiplier for the search limit when filtering is applied");
 
-    public static final ConfigOption<Boolean> VECTOR_NORMALIZE =
-            ConfigOptions.key("vector.normalize")
-                    .booleanType()
-                    .defaultValue(false)
-                    .withDescription(
-                            "Whether to L2 normalize vectors before indexing and searching");
-
     public static final ConfigOption<Integer> VECTOR_DISKANN_SEARCH_LIST_SIZE =
             ConfigOptions.key("vector.diskann.search-list-size")
                     .intType()
@@ -129,7 +122,6 @@ public class LuminaVectorIndexOptions {
     private final int trainingSize;
     private final int searchFactor;
     private final int searchListSize;
-    private final boolean normalize;
     private final double pretrainSampleRatio;
     private final Integer diskannEfConstruction;
     private final Integer diskannNeighborCount;
@@ -137,29 +129,34 @@ public class LuminaVectorIndexOptions {
     private final long buildMemoryLimit;
 
     public LuminaVectorIndexOptions(Options options) {
-        this.dimension = options.get(VECTOR_DIM);
+        this.dimension = validatePositive(options.get(VECTOR_DIM), VECTOR_DIM.key());
         this.metric = options.get(VECTOR_METRIC);
         this.indexType = options.get(VECTOR_INDEX_TYPE);
         this.encodingType = options.get(VECTOR_ENCODING_TYPE);
-
-        int sizePerIndexValue = options.get(VECTOR_SIZE_PER_INDEX);
-        if (sizePerIndexValue <= 0) {
-            throw new IllegalArgumentException(
-                    String.format(
-                            "Invalid value for '%s': %d. Must be a positive integer.",
-                            VECTOR_SIZE_PER_INDEX.key(), sizePerIndexValue));
-        }
-        this.sizePerIndex = sizePerIndexValue;
-
-        this.trainingSize = options.get(VECTOR_TRAINING_SIZE);
-        this.searchFactor = options.get(VECTOR_SEARCH_FACTOR);
-        this.searchListSize = options.get(VECTOR_DISKANN_SEARCH_LIST_SIZE);
-        this.normalize = options.get(VECTOR_NORMALIZE);
+        this.sizePerIndex =
+                validatePositive(options.get(VECTOR_SIZE_PER_INDEX), VECTOR_SIZE_PER_INDEX.key());
+        this.trainingSize =
+                validatePositive(options.get(VECTOR_TRAINING_SIZE), VECTOR_TRAINING_SIZE.key());
+        this.searchFactor =
+                validatePositive(options.get(VECTOR_SEARCH_FACTOR), VECTOR_SEARCH_FACTOR.key());
+        this.searchListSize =
+                validatePositive(
+                        options.get(VECTOR_DISKANN_SEARCH_LIST_SIZE),
+                        VECTOR_DISKANN_SEARCH_LIST_SIZE.key());
         this.pretrainSampleRatio = options.get(PRETRAIN_SAMPLE_RATIO);
         this.diskannEfConstruction = options.getOptional(DISKANN_EF_CONSTRUCTION).orElse(null);
         this.diskannNeighborCount = options.getOptional(DISKANN_NEIGHBOR_COUNT).orElse(null);
         this.diskannBuildThreadCount = options.getOptional(DISKANN_BUILD_THREAD_COUNT).orElse(null);
         this.buildMemoryLimit = options.get(VECTOR_BUILD_MEMORY_LIMIT);
+    }
+
+    private static int validatePositive(int value, String key) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "Invalid value for '%s': %d. Must be a positive integer.", key, value));
+        }
+        return value;
     }
 
     public int dimension() {
@@ -192,10 +189,6 @@ public class LuminaVectorIndexOptions {
 
     public int searchListSize() {
         return searchListSize;
-    }
-
-    public boolean normalize() {
-        return normalize;
     }
 
     public double pretrainSampleRatio() {
