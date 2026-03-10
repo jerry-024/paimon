@@ -172,7 +172,7 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
                     new LuminaIndexMeta(
                             dim,
                             options.metric().getValue(),
-                            options.indexType().name(),
+                            "DISKANN",
                             n,
                             currentIndexMinId,
                             currentIndexMaxId);
@@ -233,7 +233,7 @@ public class LuminaVectorGlobalIndexWriter implements GlobalIndexSingletonWriter
                     String.valueOf(options.diskannBuildThreadCount()));
         }
 
-        return LuminaIndex.createForBuild(dim, options.metric(), options.indexType(), extraOptions);
+        return LuminaIndex.createForBuild(dim, options.metric(), extraOptions);
     }
 
     /**

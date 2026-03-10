@@ -159,7 +159,10 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
             }
 
             if (includeRowIds != null) {
-                long[] scopedIds = extractIdsInRange(includeRowIds, meta.minId(), meta.maxId());
+                // scopedIds from the bitmap that fall within [minId, maxId] without materializing
+                // the entire
+                //     * bitmap. Uses the bitmap iterator and collects only IDs in the given range.
+                long[] scopedIds = includeRowIds.toArrayInRange(meta.minId(), meta.maxId());
                 if (scopedIds.length == 0) {
                     continue;
                 }
@@ -220,18 +223,6 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
                 topK.offer(new ScoredRow(rowId, score));
             }
         }
-    }
-
-    /**
-     * Extract IDs from the bitmap that fall within [minId, maxId] without materializing the entire
-     * bitmap. Uses the bitmap iterator and collects only IDs in the given range.
-     */
-    /**
-     * Extract IDs from the bitmap that fall within [minId, maxId] using rank+select for O(K log N)
-     * performance instead of O(N) iteration from the beginning.
-     */
-    private static long[] extractIdsInRange(RoaringNavigableMap64 bitmap, long minId, long maxId) {
-        return bitmap.toArrayInRange(minId, maxId);
     }
 
     /**
@@ -343,21 +334,12 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
             throws IOException {
         LuminaIndexMeta meta = indexMetas[position];
         LuminaVectorMetric metric = LuminaVectorMetric.fromValue(meta.metricValue());
-        LuminaIndexType indexType = meta.indexType();
-
-        if (indexType == LuminaIndexType.UNKNOWN) {
-            throw new IOException(
-                    "Unsupported Lumina index type in metadata at position "
-                            + position
-                            + ". The index file may have been created by a newer version.");
-        }
 
         LuminaFileInput fileInput = new InputStreamFileInput(in);
 
         Map<String, String> extraOptions = new LinkedHashMap<>();
         extraOptions.put("diskann.search.list_size", String.valueOf(options.searchListSize()));
-        return LuminaIndex.fromStream(
-                fileInput, fileSize, meta.dim(), metric, indexType, extraOptions);
+        return LuminaIndex.fromStream(fileInput, fileSize, meta.dim(), metric, extraOptions);
     }
 
     @Override

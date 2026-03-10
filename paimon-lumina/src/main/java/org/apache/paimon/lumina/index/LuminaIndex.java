@@ -42,27 +42,21 @@ public class LuminaIndex implements Closeable {
     private LuminaSearcher searcher;
     private final int dimension;
     private final LuminaVectorMetric metric;
-    private final LuminaIndexType indexType;
+    private static final String INDEX_TYPE = "diskann";
     private volatile boolean closed = false;
 
-    private LuminaIndex(int dimension, LuminaVectorMetric metric, LuminaIndexType indexType) {
+    private LuminaIndex(int dimension, LuminaVectorMetric metric) {
         this.dimension = dimension;
         this.metric = metric;
-        this.indexType = indexType;
     }
 
     /** Create a new index for building. */
     public static LuminaIndex createForBuild(
-            int dimension,
-            LuminaVectorMetric metric,
-            LuminaIndexType indexType,
-            Map<String, String> extraOptions) {
-        LuminaIndex index = new LuminaIndex(dimension, metric, indexType);
+            int dimension, LuminaVectorMetric metric, Map<String, String> extraOptions) {
+        LuminaIndex index = new LuminaIndex(dimension, metric);
 
         Map<String, String> opts = new LinkedHashMap<>(extraOptions);
-        index.builder =
-                LuminaBuilder.create(
-                        indexType.getLuminaName(), dimension, toMetricType(metric), opts);
+        index.builder = LuminaBuilder.create(INDEX_TYPE, dimension, toMetricType(metric), opts);
         return index;
     }
 
@@ -77,9 +71,8 @@ public class LuminaIndex implements Closeable {
             long fileSize,
             int dimension,
             LuminaVectorMetric metric,
-            LuminaIndexType indexType,
             Map<String, String> extraOptions) {
-        LuminaIndex index = new LuminaIndex(dimension, metric, indexType);
+        LuminaIndex index = new LuminaIndex(dimension, metric);
 
         Map<String, String> searcherOpts = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : extraOptions.entrySet()) {
@@ -89,8 +82,7 @@ public class LuminaIndex implements Closeable {
             }
         }
         index.searcher =
-                LuminaSearcher.create(
-                        indexType.getLuminaName(), dimension, toMetricType(metric), searcherOpts);
+                LuminaSearcher.create(INDEX_TYPE, dimension, toMetricType(metric), searcherOpts);
         index.searcher.open(fileInput, fileSize);
         return index;
     }
@@ -158,22 +150,13 @@ public class LuminaIndex implements Closeable {
         return metric;
     }
 
-    public LuminaIndexType indexType() {
-        return indexType;
-    }
-
     public static ByteBuffer allocateVectorBuffer(int numVectors, int dimension) {
         long size = (long) numVectors * dimension * Float.BYTES;
         if (size > Integer.MAX_VALUE) {
             throw new IllegalArgumentException(
-                    "Vector buffer size exceeds Integer.MAX_VALUE: "
-                            + numVectors
-                            + " * "
-                            + dimension
-                            + " * "
-                            + Float.BYTES
-                            + " = "
-                            + size);
+                    String.format(
+                            "Vector buffer size exceeds Integer.MAX_VALUE: %d * %d * %d = %d",
+                            numVectors, dimension, Float.BYTES, size));
         }
         return ByteBuffer.allocateDirect((int) size).order(ByteOrder.nativeOrder());
     }
@@ -209,7 +192,7 @@ public class LuminaIndex implements Closeable {
             case INNER_PRODUCT:
                 return MetricType.INNER_PRODUCT;
             default:
-                throw new IllegalArgumentException("Unknown metric: " + metric);
+                throw new IllegalArgumentException(String.format("Unknown metric: %s", metric));
         }
     }
 

@@ -38,12 +38,6 @@ public class LuminaVectorIndexOptions {
                     .withDescription(
                             "The distance metric for vector search (L2, COSINE, INNER_PRODUCT)");
 
-    public static final ConfigOption<LuminaIndexType> VECTOR_INDEX_TYPE =
-            ConfigOptions.key("vector.index-type")
-                    .enumType(LuminaIndexType.class)
-                    .defaultValue(LuminaIndexType.DISKANN)
-                    .withDescription("The type of Lumina index (DISKANN)");
-
     public static final ConfigOption<String> VECTOR_ENCODING_TYPE =
             ConfigOptions.key("vector.encoding-type")
                     .stringType()
@@ -116,7 +110,6 @@ public class LuminaVectorIndexOptions {
 
     private final int dimension;
     private final LuminaVectorMetric metric;
-    private final LuminaIndexType indexType;
     private final String encodingType;
     private final int sizePerIndex;
     private final int trainingSize;
@@ -131,7 +124,6 @@ public class LuminaVectorIndexOptions {
     public LuminaVectorIndexOptions(Options options) {
         this.dimension = validatePositive(options.get(VECTOR_DIM), VECTOR_DIM.key());
         this.metric = options.get(VECTOR_METRIC);
-        this.indexType = options.get(VECTOR_INDEX_TYPE);
         this.encodingType = options.get(VECTOR_ENCODING_TYPE);
         this.sizePerIndex =
                 validatePositive(options.get(VECTOR_SIZE_PER_INDEX), VECTOR_SIZE_PER_INDEX.key());
@@ -165,10 +157,6 @@ public class LuminaVectorIndexOptions {
 
     public LuminaVectorMetric metric() {
         return metric;
-    }
-
-    public LuminaIndexType indexType() {
-        return indexType;
     }
 
     public String encodingType() {

@@ -53,6 +53,6 @@ public enum LuminaVectorMetric {
                 return metric;
             }
         }
-        throw new IllegalArgumentException("Unknown metric value: " + value);
+        throw new IllegalArgumentException(String.format("Unknown metric value: %s", value));
     }
 }

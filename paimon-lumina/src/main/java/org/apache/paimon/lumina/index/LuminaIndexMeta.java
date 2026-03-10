@@ -62,12 +62,8 @@ public class LuminaIndexMeta implements Serializable {
         return metricValue;
     }
 
-    public LuminaIndexType indexType() {
-        try {
-            return LuminaIndexType.fromString(indexTypeName);
-        } catch (IllegalArgumentException e) {
-            return LuminaIndexType.UNKNOWN;
-        }
+    public String indexTypeName() {
+        return indexTypeName;
     }
 
     public long minId() {
@@ -96,7 +92,8 @@ public class LuminaIndexMeta implements Serializable {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
         int version = in.readInt();
         if (version != VERSION) {
-            throw new IOException("Unsupported Lumina index meta version: " + version);
+            throw new IOException(
+                    String.format("Unsupported Lumina index meta version: %d", version));
         }
         int dim = in.readInt();
         int metricValue = in.readInt();
