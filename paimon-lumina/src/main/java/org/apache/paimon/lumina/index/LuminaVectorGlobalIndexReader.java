@@ -120,7 +120,7 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
     private GlobalIndexResult search(
             VectorSearch vectorSearch, LuminaIndex[] loadedIndices, LuminaIndexMeta[] loadedMetas)
             throws IOException {
-        validateSearchVector(vectorSearch.vector());
+        validateSearchVector(vectorSearch.vector(), loadedMetas);
         float[] queryVector = ((float[]) vectorSearch.vector()).clone();
         int limit = vectorSearch.limit();
 
@@ -251,7 +251,7 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
         }
     }
 
-    private void validateSearchVector(Object vector) {
+    private void validateSearchVector(Object vector, LuminaIndexMeta[] loadedMetas) {
         if (!(vector instanceof float[])) {
             throw new IllegalArgumentException(
                     "Expected float[] vector but got: " + vector.getClass());
@@ -262,12 +262,13 @@ public class LuminaVectorGlobalIndexReader implements GlobalIndexReader {
                     "Lumina currently only supports float arrays, but field type is: " + fieldType);
         }
         int queryDim = ((float[]) vector).length;
-        int expectedDim = options.dimension();
-        if (queryDim != expectedDim) {
-            throw new IllegalArgumentException(
-                    String.format(
-                            "Query vector dimension mismatch: expected %d, but got %d",
-                            expectedDim, queryDim));
+        for (LuminaIndexMeta meta : loadedMetas) {
+            if (meta != null && queryDim != meta.dim()) {
+                throw new IllegalArgumentException(
+                        String.format(
+                                "Query vector dimension mismatch: index expects %d, but got %d",
+                                meta.dim(), queryDim));
+            }
         }
     }
 
