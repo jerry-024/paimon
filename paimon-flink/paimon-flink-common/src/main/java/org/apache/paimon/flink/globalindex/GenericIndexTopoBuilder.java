@@ -47,8 +47,14 @@ import org.apache.paimon.table.sink.CommitMessageImpl;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VectorType;
 import org.apache.paimon.utils.CloseableIterator;
 import org.apache.paimon.utils.Range;
 
@@ -172,6 +178,8 @@ public class GenericIndexTopoBuilder {
             Options userOptions,
             long maxIndexedRowId)
             throws Exception {
+        validateIndexFieldType(
+                indexType, indexColumn, table.rowType().getField(indexColumn).type());
         GenericGlobalIndexBuilder indexBuilder = indexBuilderSupplier.get();
         if (partitionPredicate != null) {
             indexBuilder.withPartitionPredicate(partitionPredicate);
@@ -189,6 +197,28 @@ public class GenericIndexTopoBuilder {
                 entries,
                 deletedIndexEntries,
                 maxIndexedRowId);
+    }
+
+    static void validateIndexFieldType(String indexType, String indexColumn, DataType dataType) {
+        if ("lumina-vector-ann".equals(indexType)) {
+            boolean validLumina = false;
+            if (dataType instanceof VectorType) {
+                validLumina = ((VectorType) dataType).getElementType() instanceof FloatType;
+            } else if (dataType instanceof ArrayType) {
+                validLumina = ((ArrayType) dataType).getElementType() instanceof FloatType;
+            }
+            checkArgument(
+                    validLumina,
+                    "Lumina index column '%s' must be VectorType<FLOAT> or ARRAY<FLOAT>, but got: %s",
+                    indexColumn,
+                    dataType.asSQLString());
+        } else if ("tantivy-fulltext".equals(indexType)) {
+            checkArgument(
+                    dataType instanceof VarCharType || dataType instanceof CharType,
+                    "Tantivy index column '%s' must be STRING (VARCHAR or CHAR), but got: %s",
+                    indexColumn,
+                    dataType.asSQLString());
+        }
     }
 
     /**
