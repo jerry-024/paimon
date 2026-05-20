@@ -15,17 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-__all__ = ['SQLContext', 'register_builtins', 'register_first_frame']
+__all__ = ['SQLContext']
 
 
 def __getattr__(name):
     if name == "SQLContext":
         from pypaimon_rust.datafusion import SQLContext
         return SQLContext
-    if name == "register_builtins":
-        from pypaimon.sql.functions import register_builtins
-        return register_builtins
-    if name == "register_first_frame":
-        from pypaimon.sql.functions import register_first_frame
-        return register_first_frame
     raise AttributeError("module 'pypaimon.sql' has no attribute {}".format(name))

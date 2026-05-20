@@ -21,4 +21,3 @@ from pypaimon.function.function_definition import (  # noqa: F401
     FileFunctionDefinition, SQLFunctionDefinition, LambdaFunctionDefinition,
 )
 from pypaimon.function.function_change import FunctionChange  # noqa: F401
-from pypaimon.function.builtins import make_first_frame, open_blob_descriptor_stream  # noqa: F401
