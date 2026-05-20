@@ -20,7 +20,7 @@ from typing import Optional
 import pyarrow as pa
 
 from pypaimon.function.builtins import make_first_frame
-from pypaimon_rust.functions import register_python_udf
+from pypaimon_rust.datafusion import udf
 
 
 def register_first_frame(
@@ -29,12 +29,14 @@ def register_first_frame(
     name: str = "first_frame",
     image_format: str = "JPEG",
 ) -> None:
-    register_python_udf(
-        ctx,
-        make_first_frame(catalog_options, image_format),
-        [pa.binary()],
-        pa.binary(),
-        name=name,
+    ctx.register_udf(
+        udf(
+            make_first_frame(catalog_options, image_format),
+            [pa.binary()],
+            pa.binary(),
+            "volatile",
+            name,
+        )
     )
 
 
