@@ -2,6 +2,10 @@
 
 Benchmark Lumina vector search latency across different storage backends (Local / Jindo-Cache / OSS).
 
+The benchmark simulates `LuminaVectorGlobalIndexReader` reads: all backends are
+opened through `LuminaSearcher.open_stream`, queries use `search_list`, and
+remote backends are not downloaded to a temporary local file.
+
 ## Dependencies
 
 ```bash
@@ -16,6 +20,10 @@ pip install pyarrow
 pip install pypaimon         # paimon python SDK, provides FileIO abstraction
 pip install pyjindosdk       # Jindo filesystem handler (jindo-cache backend only)
 ```
+
+Use a `lumina_data` build that exposes `LuminaSearcher.open_stream` and
+`LuminaSearcher.search_list`; older wheels can only run the previous
+download/local-file style benchmark.
 
 ### Runtime: LD_LIBRARY_PATH
 
@@ -96,7 +104,7 @@ python3 lumina_search_bench.py \
 | `--encoding` | Encoding: `pq`, `sq8`, `rabitq`, `rawf32` |
 | `--index-type` | Index type: `diskann`, `ivf`, `bruteforce` |
 | `--topk` | Top-K results per query (default: 10) |
-| `--list-size` | DiskANN search list size (default: 15) |
+| `--list-size` | DiskANN search list size. If omitted, uses the reader default `max(topk * 1.5, 16)` |
 | `--queries` | Number of search queries (default: 20) |
 | `--backends` | Comma-separated: `local`, `jindo-cache`, `oss` |
 | `--oss-access-key-id` | OSS access key ID |
@@ -125,6 +133,6 @@ OSS                  20          53.95     0.37   2445.015   2697.298   2676.452
 
 | Backend | Description | Requires |
 |---------|-------------|----------|
-| **Local** | Direct file read via `searcher.open(path)` | Index file on local disk |
+| **Local** | Local file stream read via `searcher.open_stream(...)` | Index file on local disk |
 | **Jindo-Cache** | Read through Jindo caching layer (DLF mode) | `pypaimon`, `pyarrow`, `pyjindosdk` |
-| **OSS** | Direct read from Alibaba Cloud OSS | `pypaimon`, `pyarrow`, OSS credentials |
+| **OSS** | Direct stream read from Alibaba Cloud OSS | `pypaimon`, `pyarrow`, OSS credentials |

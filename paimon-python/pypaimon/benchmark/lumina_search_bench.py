@@ -43,6 +43,10 @@ Usage:
         --options-file searcher_opts.json \
         --catalog-options-file catalog_opts.json \
         --backends jindo-cache,oss
+
+The benchmark intentionally opens all backends with LuminaSearcher.open_stream
+and searches with search_list, matching LuminaVectorGlobalIndexReader's read
+path. It does not fall back to downloading remote indexes to local files.
 """
 
 import argparse
@@ -55,6 +59,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+MIN_SEARCH_LIST_SIZE = 16
 
 
 def _percentile(sorted_values, p):
@@ -84,15 +90,22 @@ def _generate_random_queries(dim, num_queries, seed=42):
     return queries
 
 
+def _ensure_search_list_size(search_options, topk):
+    """Match LuminaVectorGlobalIndexReader's search list-size default."""
+    if "diskann.search.list_size" not in search_options:
+        list_size = max(int(topk * 1.5), MIN_SEARCH_LIST_SIZE)
+        search_options["diskann.search.list_size"] = str(list_size)
+
+
 class BenchmarkResult:
     """Holds benchmark results for one storage backend."""
 
-    def __init__(self, storage_name, num_queries, latencies_ms):
+    def __init__(self, storage_name, latencies_ms):
         self.storage = storage_name
-        self.queries = num_queries
+        self.queries = len(latencies_ms)
         self.latencies_ms = sorted(latencies_ms)
         self.total_time_s = sum(latencies_ms) / 1000.0
-        self.rps = num_queries / self.total_time_s if self.total_time_s > 0 else 0
+        self.rps = self.queries / self.total_time_s if self.total_time_s > 0 else 0
 
     @property
     def min_ms(self):
@@ -124,19 +137,28 @@ class BenchmarkResult:
 
 
 def _open_searcher_local(searcher_options, local_path):
-    """Open searcher from local file path."""
+    """Open searcher from local file stream like LuminaVectorGlobalIndexReader."""
     from lumina_data import LuminaSearcher
+
+    file_size = os.path.getsize(local_path)
+    stream = open(local_path, 'rb')
     searcher = LuminaSearcher(searcher_options)
-    searcher.open(local_path)
-    return searcher, None
+    if hasattr(searcher, 'open_stream'):
+        try:
+            searcher.open_stream(stream, file_size)
+            return searcher, stream
+        except Exception:
+            stream.close()
+            raise
+
+    stream.close()
+    raise RuntimeError(
+        "LuminaSearcher.open_stream is required to simulate "
+        "LuminaVectorGlobalIndexReader stream reads")
 
 
 def _open_searcher_stream(searcher_options, file_io, index_path):
-    """Open searcher from a file IO stream (OSS or Jindo-Cache).
-
-    Falls back to downloading to a temp file if open_stream is not available.
-    """
-    import tempfile
+    """Open searcher from a file IO stream like LuminaVectorGlobalIndexReader."""
     from lumina_data import LuminaSearcher
 
     file_size = file_io.get_file_size(index_path)
@@ -144,24 +166,17 @@ def _open_searcher_stream(searcher_options, file_io, index_path):
     searcher = LuminaSearcher(searcher_options)
 
     if hasattr(searcher, 'open_stream'):
-        searcher.open_stream(stream, file_size)
-        return searcher, stream
-    else:
-        tmp = tempfile.NamedTemporaryFile(suffix='.lmi', delete=False)
         try:
-            while True:
-                chunk = stream.read(8 * 1024 * 1024)
-                if not chunk:
-                    break
-                tmp.write(chunk)
-            tmp.close()
-            stream.close()
-            searcher.open(tmp.name)
-            return searcher, tmp.name
+            searcher.open_stream(stream, file_size)
+            return searcher, stream
         except Exception:
-            tmp.close()
-            os.unlink(tmp.name)
+            stream.close()
             raise
+
+    stream.close()
+    raise RuntimeError(
+        "LuminaSearcher.open_stream is required to simulate "
+        "LuminaVectorGlobalIndexReader stream reads")
 
 
 def _build_oss_file_io(index_path, catalog_options=None):
@@ -192,12 +207,21 @@ def _build_jindo_cache_file_io(index_path, catalog_options=None):
 
 
 def _search_one(searcher, query_vector, topk, search_options):
-    """Search with a single query vector, adapting to API version."""
-    if hasattr(searcher, 'search_numpy'):
-        query = np.ascontiguousarray(query_vector.reshape(1, -1), dtype=np.float32)
-        searcher.search_numpy(query, topk, search_options)
-    else:
-        searcher.search_list(query_vector.tolist(), 1, topk, search_options)
+    """Search with a single query vector like LuminaVectorGlobalIndexReader."""
+    if not hasattr(searcher, 'search_list'):
+        raise RuntimeError(
+            "LuminaSearcher.search_list is required to simulate "
+            "LuminaVectorGlobalIndexReader")
+
+    count = searcher.get_count()
+    effective_k = min(topk, count)
+    if effective_k <= 0:
+        return
+
+    query = [float(v) for v in np.asarray(query_vector).tolist()]
+    opts = dict(search_options)
+    _ensure_search_list_size(opts, effective_k)
+    searcher.search_list(query, 1, effective_k, opts)
 
 
 def run_benchmark(searcher, queries, topk, search_options):
@@ -259,8 +283,10 @@ def main():
                         help="Number of search queries (default: 20)")
     parser.add_argument("--topk", type=int, default=10,
                         help="Top-K results per query (default: 10)")
-    parser.add_argument("--list-size", type=int, default=15,
-                        help="DiskANN search list size (default: 15)")
+    parser.add_argument("--list-size", type=int, default=None,
+                        help=("DiskANN search list size. If omitted, matches "
+                              "LuminaVectorGlobalIndexReader default: "
+                              "max(topk * 1.5, 16)."))
     parser.add_argument("--backends", type=str, default="local,jindo-cache,oss",
                         help="Comma-separated backends: local,jindo-cache,oss")
     parser.add_argument("--options-file", type=str, default=None,
@@ -344,12 +370,11 @@ def main():
 
     metric = searcher_options.get("distance.metric", "unknown")
     encoding = searcher_options.get("encoding.type", "unknown")
-    list_size = args.list_size
-
-    search_options = {
-        "search.topk": str(args.topk),
-        "diskann.search.list_size": str(list_size),
-    }
+    display_list_size = (args.list_size if args.list_size is not None else
+                         max(int(args.topk * 1.5), MIN_SEARCH_LIST_SIZE))
+    search_options = dict(searcher_options)
+    if args.list_size is not None:
+        search_options["diskann.search.list_size"] = str(args.list_size)
 
     # Determine dimension from options or by opening index
     dim = int(searcher_options.get("index.dimension", 0))
@@ -368,6 +393,8 @@ def main():
 
     for backend in backends:
         print(f"\nRunning benchmark: {backend} ...")
+        searcher = None
+        stream = None
         try:
             if backend == "local":
                 searcher, stream = _open_searcher_local(
@@ -393,22 +420,27 @@ def main():
                 "jindo-cache": "Jindo-Cache",
                 "oss": "OSS",
             }.get(backend, backend)
-            results.append(BenchmarkResult(display_name, args.queries, latencies))
-
-            searcher.close()
-            if stream is not None:
-                if isinstance(stream, str):
-                    os.unlink(stream)
-                else:
-                    stream.close()
+            results.append(BenchmarkResult(display_name, latencies))
 
         except Exception as e:
             print(f"  {backend} failed: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            if searcher is not None:
+                try:
+                    searcher.close()
+                except Exception as e:
+                    print(f"  Warning: failed to close searcher: {e}")
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception as e:
+                    print(f"  Warning: failed to close stream: {e}")
 
     if results:
-        print_results(index_size, metric, encoding, args.topk, list_size, results)
+        print_results(index_size, metric, encoding, args.topk,
+                      display_list_size, results)
 
 
 if __name__ == "__main__":
