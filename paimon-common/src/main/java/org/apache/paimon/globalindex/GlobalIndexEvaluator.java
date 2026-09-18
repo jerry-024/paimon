@@ -208,8 +208,8 @@ public class GlobalIndexEvaluator implements Closeable {
             CompletableFuture<Optional<Evaluation>> range = null;
             if (predicate.function() instanceof And && isRangeBound(child)) {
                 LeafPredicate first = (LeafPredicate) child;
-                // ponytail: pair search is quadratic in filter count; group by field for large
-                // conjunctions.
+                // Conjunctions normally contain few filters, so a quadratic pair search avoids
+                // extra grouping.
                 for (int j = i + 1; j < children.size(); j++) {
                     Predicate other = children.get(j);
                     if (!isRangeBound(other)) {
@@ -256,6 +256,7 @@ public class GlobalIndexEvaluator implements Closeable {
             return false;
         }
         LeafPredicate leaf = (LeafPredicate) predicate;
+        // Keep null comparisons separate so a supported non-null bound can still contribute.
         return leaf.fieldRefOptional().isPresent()
                 && (isLowerBound(leaf)
                         || leaf.function() instanceof LessThan
